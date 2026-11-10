@@ -21,6 +21,7 @@ import QuickAddTodo from '../components/QuickAddTodo.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
+import TodoOverview from '../components/TodoOverview.vue'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
 import Button from '../components/ui/Button.vue'
@@ -1151,6 +1152,11 @@ onUnmounted(() => {
       </span>
       <Button variant="ghost" size="sm" @click="clearSelection">清除</Button>
     </div>
+
+    <TodoOverview
+      v-if="!selecting && !error && (!loading || items.length)"
+      :todos="items"
+    />
 
     <section
       v-if="error"
