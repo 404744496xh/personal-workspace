@@ -451,6 +451,17 @@ function closeForm(): void {
   editing.value = null
 }
 
+function matchedInList(created: Todo): boolean {
+  return !hasServerFilters() && matchesClientFilters(created)
+}
+
+// 列表刷新可能还在途中，旧响应落地时会覆盖掉刚创建的待办，先让这次刷新失效
+function insertCreated(created: Todo): void {
+  requestSeq += 1
+  items.value = [created, ...items.value]
+  total.value += 1
+}
+
 async function save(payload: TodoPayload): Promise<void> {
   saving.value = true
   const current = editing.value
@@ -463,9 +474,8 @@ async function save(payload: TodoPayload): Promise<void> {
       showToast('已保存')
     } else {
       const created = await createTodo(payload)
-      if (!hasServerFilters() && matchesClientFilters(created)) {
-        items.value = [created, ...items.value]
-        total.value += 1
+      if (matchedInList(created)) {
+        insertCreated(created)
       } else {
         await load({ silent: true })
       }
@@ -515,9 +525,8 @@ async function quickCreate(projectKey: string, moduleName: string,
   try {
     await ensureProjectModule(payload.project, payload.module)
     const created = await createTodo(payload)
-    if (!hasServerFilters() && matchesClientFilters(created)) {
-      items.value = [created, ...items.value]
-      total.value += 1
+    if (matchedInList(created)) {
+      insertCreated(created)
     } else {
       await load({ silent: true })
     }

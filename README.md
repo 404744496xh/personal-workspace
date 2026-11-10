@@ -2,7 +2,7 @@
 
 Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记与备份，所有数据按登录用户隔离。后端 Java 21 + WebFlux，前端 Vue 3 + Vite，页面挂在站点前台 `/workspace`，不进入 Console。
 
-当前版本：`0.6.25`。
+当前版本：`0.6.26`。
 
 ## 功能
 
@@ -53,13 +53,13 @@ Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记
 ./gradlew build
 
 # 产物
-build/libs/personal-workspace-0.6.25.jar
+build/libs/personal-workspace-0.6.26.jar
 
 # 启动本地 Halo（Docker，默认 8090 端口）
 ./gradlew haloServer
 ```
 
-安装：打开 `http://localhost:8090/console`，进入「插件 → 安装」，上传 `build/libs/personal-workspace-0.6.25.jar`，安装后启用。随后访问 `http://localhost:8090/workspace`。
+安装：打开 `http://localhost:8090/console`，进入「插件 → 安装」，上传 `build/libs/personal-workspace-0.6.26.jar`，安装后启用。随后访问 `http://localhost:8090/workspace`。
 
 Windows 下如果 Halo 工作目录被解析成盘符路径导致 R2DBC 报错，用显式路径启动：
 
