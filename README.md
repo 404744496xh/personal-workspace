@@ -9,7 +9,7 @@ Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记
 - 前台页面 `/workspace`：未登录跳转 `/login?redirect_uri=%2Fworkspace`，登录后回到工作台
 - 待办：创建 / 编辑 / 完成切换 / 删除 / 关键词搜索 / 状态筛选 / 优先级筛选 / 创建时间与完成时间排序及日期区间筛选 / 分页；每条待办显示创建时间（`创建于 年-月-日 时:分`），有待办截止或完成时间时与之同行展示
 - 待办状态：未完成 / 已完成 / 不用处理；「全部状态」默认不包含不用处理，在状态筛选切到「不用处理」查看，行内悬停可标记或恢复；标记不用处理会清空完成时间，勾选完成会从不用处理恢复为已完成
-- 首屏概览：登录后默认进入概览页，点击左上角「个人工作台」随时回到首屏；日历支持按月 / 按周切换，按天显示新增与完成数量，可翻页并一键回到今天；右侧显示未完成（含已完结项目，附「今日 +N」）、快逾期（创建超过 7 天仍未完成）与项目概览（进行中 / 已完结数量、前三个进行中项目进度）；点未完成 / 快逾期跳到对应筛选，点项目跳到项目页；日历下方折线图与日历共用月 / 周视图和翻页，按天对比新增与完成；鼠标悬停日期或折线节点显示当天新增 / 完成数量与相关待办；统计基于当前加载的最近 500 条待办
+- 首屏概览：登录后默认进入概览页，点击左上角「个人工作台」随时回到首屏；日历支持按月 / 按周切换，按天显示新增、完成与不用处理数量，可翻页并一键回到今天；右侧显示未完成（含已完结项目，附「今日 +N」）、快逾期（创建超过 7 天仍未完成）、不用处理与项目概览（进行中 / 已完结数量、前三个进行中项目进度）；点未完成 / 快逾期 / 不用处理跳到对应筛选，点项目跳到项目页；日历下方折线图与日历共用月 / 周视图和翻页，按天对比新增、完成与不用处理；鼠标悬停日期或折线节点显示当天新增 / 完成 / 不用处理数量与相关待办；统计基于当前加载的最近 500 条待办
 - 待办多选：工具栏「多选」进入选择态，勾选多条后可全选 / 清除 / 一键复制为纯文本（含状态标记、标题、优先级、项目/模块、截止与完成时间），退出后恢复完成勾选；选择态下项目标题与模块标题前出现复选框，可按项目 / 模块一键全选，顶部全选覆盖当前可见的全部待办
 - 待办归属项目与模块：项目下维护模块列表；待办表单的模块支持直接输入新模块，保存时自动加入项目
 - 模块重命名：模块标题行悬停铅笔行内改名，项目表单的模块标签点击即可改名；服务端原子替换模块名并迁移该项目下引用旧名的所有待办
@@ -122,7 +122,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 | GET | `/backup` | 导出当前用户全部数据（版本 1） |
 | POST | `/backup?replace=true\|false` | 导入备份；`replace=true` 先清空当前数据再导入 |
 
-待办请求体字段：`title`（必填，≤200）、`detail`（≤5000）、`priority`（必填 `HIGH/MEDIUM/LOW`）、`project`（项目 name，可空）、`module`（≤32，项目为空时忽略）、`dueDate`（`YYYY-MM-DD`）、`completed`、`dismissed`（与 `completed` 互斥）。`completedAt` 与 `createdAt` 由服务端维护，客户端无法写入。
+待办请求体字段：`title`（必填，≤200）、`detail`（≤5000）、`priority`（必填 `HIGH/MEDIUM/LOW`）、`project`（项目 name，可空）、`module`（≤32，项目为空时忽略）、`dueDate`（`YYYY-MM-DD`）、`completed`、`dismissed`（与 `completed` 互斥）。`createdAt`、`completedAt`、`dismissedAt` 由服务端维护，客户端无法写入；标记不用处理时写入 `dismissedAt`，恢复或勾选完成时清空。
 
 项目请求体字段：`title`（必填，≤200）、`modules`（≤20 个，每个 ≤32）、`progress`（0–100，可空）、`note`（≤2000）、`links`（≤20 个，每个 ≤2000）、`tags`（≤10 个，每个 ≤32）。
 
@@ -146,6 +146,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
       "completed": false,
       "completedAt": null,
       "dismissed": false,
+      "dismissedAt": null,
       "createdAt": "2026-11-09T03:00:00Z"
     }
   ],
@@ -163,7 +164,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 
 | Kind | 用途 | 索引 |
 | --- | --- | --- |
-| WorkspaceTodo | 待办（`project`、`module`、`completedAt`、`dismissed`） | `spec.owner`、`spec.completed`、`spec.dismissed`、`spec.priority`、`spec.dueDate`、`spec.title`、`spec.detail`、`spec.tags`（multi） |
+| WorkspaceTodo | 待办（`project`、`module`、`completedAt`、`dismissed`、`dismissedAt`） | `spec.owner`、`spec.completed`、`spec.dismissed`、`spec.priority`、`spec.dueDate`、`spec.title`、`spec.detail`、`spec.tags`（multi） |
 | WorkspaceProject | 项目（`title`、`modules`、`progress`、`note`、`links`、`tags`） | `spec.owner` |
 | WorkspaceQuickCmd | 快速命令（`title`、`command`、`category`） | `spec.owner` |
 | WorkspaceNote | 笔记（Markdown `content`、关联 `project` / `module` / `todos`、`updatedAt`） | `spec.owner` |
@@ -182,12 +183,12 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 - 不带 `confirm` 删除：400；带 `confirm=true`：204
 - 删除仍有待办的项目：409；删除空项目：204
 - 创建时伪造 `owner`：被服务端覆盖为当前用户
-- 勾选完成写入 `completedAt`，取消完成清空；编辑已完成待办不覆盖完成时间；标记不用处理会清空完成时间，勾选完成会清除不用处理
+- 勾选完成写入 `completedAt`，取消完成清空；编辑已完成待办不覆盖完成时间；标记不用处理会清空完成时间并写入 `dismissedAt`，恢复或勾选完成会清除不用处理与 `dismissedAt`；重复标记不刷新 `dismissedAt`
 - `completed` 与 `dismissed` 同时为 true：400；客户端提交 `completedAt`、新增模型的未知字段：400
 - 非法优先级、非法进度、超长笔记：400
 - 项目部分更新保留未传的进度/备注/链接；空字符串可清空备注
 - 全局搜索命中四类数据；笔记命中项的副标题显示关联项目名；空关键词返回空结果
-- 备份导出包含四类数据；合并导入生成新数据，覆盖导入先清空；完成时间、项目名映射、笔记更新时间与笔记关联（项目/模块/待办按备份名重映射）保留；旧版含 `bookmarks` 的备份仍可导入（书签被忽略）
+- 备份导出包含四类数据；合并导入生成新数据，覆盖导入先清空；完成时间、不用处理时间、项目名映射、笔记更新时间与笔记关联（项目/模块/待办按备份名重映射）保留；旧版含 `bookmarks` 的备份仍可导入（书签被忽略）
 - 笔记关联：`project`/`module`/`todos` 持久化且待办去重；清空项目时模块一并清空；Bob 读取 Alice 笔记 404
 - 笔记粘贴图片：编辑器内粘贴 / 拖入图片后上传返回 `/upload/…` 且可匿名访问（`image/png`，字节一致）；非图片 / 超限被拒；正文插入 Markdown 图片
 - 笔记页内编辑器：待办页的项目 / 模块 / 待办笔记入口在单篇时直接打开对应笔记、多篇时进入笔记页并带入筛选，无关联笔记时进入空的筛选结果；同位置「新建笔记」入口直接进入编辑器并预填项目 / 模块 / 待办（待办入口一并带入其项目与模块），保存后关联落库；返回时未保存内容二次确认；「属性」弹窗回显并更新项目 / 模块 / 待办；从筛选新建笔记自动继承属性；Vditor 静态资源（lute / 图标 / 内容主题）均 200

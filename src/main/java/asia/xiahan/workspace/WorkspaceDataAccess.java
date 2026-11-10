@@ -359,7 +359,8 @@ public class WorkspaceDataAccess {
                         todo.getSpec().getDueDate(),
                         todo.getSpec().isCompleted(),
                         todo.getSpec().getCompletedAt(),
-                        todo.getSpec().isDismissed()))
+                        todo.getSpec().isDismissed(),
+                        todo.getSpec().getDismissedAt()))
                     .toList();
                 var projects = tuple.getT2().stream()
                     .map(project -> new BackupPayload.BackupProject(
@@ -430,6 +431,9 @@ public class WorkspaceDataAccess {
             spec.setCompleted(completed);
             spec.setCompletedAt(completed ? parseInstantOrNow(source.completedAt()) : null);
             spec.setDismissed(dismissed);
+            spec.setDismissedAt(dismissed && trimToNull(source.dismissedAt()) != null
+                ? parseInstantOrNow(source.dismissedAt())
+                : null);
             todo.setSpec(spec);
             var oldTodoName = trimToNull(source.name());
             if (oldTodoName != null) {
@@ -567,10 +571,16 @@ public class WorkspaceDataAccess {
             throw ApiException.badRequest("completed 与 dismissed 不能同时为 true");
         }
         if (creating || request.dismissed() != null) {
+            var wasDismissed = spec.isDismissed();
             spec.setDismissed(requestDismissed);
             if (requestDismissed) {
                 spec.setCompleted(false);
                 spec.setCompletedAt(null);
+                if (!wasDismissed || spec.getDismissedAt() == null) {
+                    spec.setDismissedAt(Instant.now().toString());
+                }
+            } else {
+                spec.setDismissedAt(null);
             }
         }
         Boolean target = creating
@@ -585,6 +595,7 @@ public class WorkspaceDataAccess {
             }
             if (completed) {
                 spec.setDismissed(false);
+                spec.setDismissedAt(null);
             }
         }
     }

@@ -26,6 +26,7 @@ const tipTop = ref(0)
 interface DayCount {
   created: number
   completed: number
+  dismissed: number
 }
 
 interface DayCell {
@@ -33,6 +34,7 @@ interface DayCell {
   day: number
   created: number
   completed: number
+  dismissed: number
   isToday: boolean
 }
 
@@ -86,20 +88,22 @@ const weekLabel = computed(() => {
 const dayCounts = computed(() => {
   const counts = new Map<string, DayCount>()
   const bump = (key: string, field: keyof DayCount): void => {
-    const entry = counts.get(key) ?? { created: 0, completed: 0 }
+    const entry = counts.get(key) ?? { created: 0, completed: 0, dismissed: 0 }
     entry[field] += 1
     counts.set(key, entry)
   }
   for (const todo of props.todos) {
     if (todo.createdAt) bump(formatDate(todo.createdAt), 'created')
     if (todo.completedAt) bump(formatDate(todo.completedAt), 'completed')
+    const dismissedAt = todo.dismissed ? (todo.dismissedAt || todo.createdAt) : null
+    if (dismissedAt) bump(formatDate(dismissedAt), 'dismissed')
   }
   return counts
 })
 
 function cellOf(date: Date): DayCell {
   const key = keyOf(date)
-  const counts = dayCounts.value.get(key) ?? { created: 0, completed: 0 }
+  const counts = dayCounts.value.get(key) ?? { created: 0, completed: 0, dismissed: 0 }
   return { key, day: date.getDate(), ...counts, isToday: key === today }
 }
 
@@ -125,12 +129,14 @@ const weekDays = computed<DayCell[]>(() => {
 function sumOf(days: (DayCell | null)[]): DayCount {
   let created = 0
   let completed = 0
+  let dismissed = 0
   for (const day of days) {
     if (!day) continue
     created += day.created
     completed += day.completed
+    dismissed += day.dismissed
   }
-  return { created, completed }
+  return { created, completed, dismissed }
 }
 
 const summary = computed(() =>
@@ -139,6 +145,8 @@ const summaryLabel = computed(() => (view.value === 'month' ? '本月' : '本周
 
 const openCount = computed(() =>
   props.todos.filter((todo) => !todo.completed && !todo.dismissed).length)
+const dismissedCount = computed(() =>
+  props.todos.filter((todo) => todo.dismissed).length)
 const todayNew = computed(() =>
   props.todos.filter((todo) => !todo.completed && !todo.dismissed
     && todo.createdAt && formatDate(todo.createdAt) === today).length)
@@ -162,7 +170,7 @@ const trendPoints = computed(() =>
     ? cells.value.filter((cell): cell is DayCell => cell !== null)
     : weekDays.value)
 const trendMax = computed(() => Math.max(1,
-  ...trendPoints.value.flatMap((day) => [day.created, day.completed])))
+  ...trendPoints.value.flatMap((day) => [day.created, day.completed, day.dismissed])))
 
 function pointX(index: number): number {
   const last = trendPoints.value.length - 1
@@ -173,7 +181,7 @@ function pointY(value: number): number {
   return 92 - (value / trendMax.value) * 84
 }
 
-function linePoints(field: 'created' | 'completed'): string {
+function linePoints(field: 'created' | 'completed' | 'dismissed'): string {
   return trendPoints.value
     .map((day, index) => `${pointX(index).toFixed(2)},${pointY(day[field]).toFixed(2)}`)
     .join(' ')
@@ -202,12 +210,14 @@ const hoverTodos = computed(() => {
   if (!hoverKey.value) return []
   const key = hoverKey.value
   return props.todos
-    .map((todo) => {
-      if (todo.createdAt && formatDate(todo.createdAt) === key) return `+ ${todo.title}`
-      if (todo.completedAt && formatDate(todo.completedAt) === key) return `✓ ${todo.title}`
-      return ''
+    .flatMap((todo) => {
+      const titles: string[] = []
+      if (todo.createdAt && formatDate(todo.createdAt) === key) titles.push(`+ ${todo.title}`)
+      if (todo.completedAt && formatDate(todo.completedAt) === key) titles.push(`✓ ${todo.title}`)
+      const dismissedAt = todo.dismissed ? (todo.dismissedAt || todo.createdAt) : null
+      if (dismissedAt && formatDate(dismissedAt) === key) titles.push(`− ${todo.title}`)
+      return titles
     })
-    .filter(Boolean)
     .slice(0, 4)
 })
 const hoverIndex = computed(() =>
@@ -312,6 +322,7 @@ function openStaleTodos(): void {
               :data-date="cell.key"
               :data-created="cell.created"
               :data-completed="cell.completed"
+              :data-dismissed="cell.dismissed"
             >
               <span
                 class="text-[10px] font-medium"
@@ -320,6 +331,7 @@ function openStaleTodos(): void {
               <span class="mt-0.5 flex items-center gap-1">
                 <span v-if="cell.created" class="text-[#007AFF] dark:text-[#64B5FF]">+{{ cell.created }}</span>
                 <span v-if="cell.completed" class="text-[#34C759] dark:text-[#30D158]">✓{{ cell.completed }}</span>
+                <span v-if="cell.dismissed" class="text-[#8e8e93] dark:text-[#98989d]">−{{ cell.dismissed }}</span>
               </span>
             </div>
           </template>
@@ -339,6 +351,7 @@ function openStaleTodos(): void {
             :data-date="cell.key"
             :data-created="cell.created"
             :data-completed="cell.completed"
+            :data-dismissed="cell.dismissed"
             @mouseenter="showTip(cell.key, $event)"
             @mouseleave="clearTip"
           >
@@ -346,9 +359,10 @@ function openStaleTodos(): void {
               class="text-[20px] font-semibold"
               :class="cell.isToday ? 'text-[#007AFF] dark:text-[#64B5FF]' : 'text-[#1d1d1f]/80 dark:text-[#f5f5f7]/70'"
             >{{ cell.day }}</span>
-            <span class="mt-2 flex h-9 flex-col items-center justify-center gap-1 text-[12px]">
+            <span class="mt-2 flex h-12 flex-col items-center justify-center gap-0.5 text-[12px]">
               <span v-if="cell.created" class="text-[#007AFF] dark:text-[#64B5FF]">+{{ cell.created }}</span>
               <span v-if="cell.completed" class="text-[#34C759] dark:text-[#30D158]">✓{{ cell.completed }}</span>
+              <span v-if="cell.dismissed" class="text-[#8e8e93] dark:text-[#98989d]">−{{ cell.dismissed }}</span>
             </span>
           </div>
         </div>
@@ -362,6 +376,9 @@ function openStaleTodos(): void {
               </span>
               <span class="flex items-center gap-1">
                 <i class="h-1.5 w-1.5 rounded-full bg-[#34C759] dark:bg-[#30D158]" aria-hidden="true"></i>完成
+              </span>
+              <span class="flex items-center gap-1">
+                <i class="h-1.5 w-1.5 rounded-full bg-[#8e8e93] dark:bg-[#98989d]" aria-hidden="true"></i>不用处理
               </span>
             </div>
           </div>
@@ -390,6 +407,15 @@ function openStaleTodos(): void {
                 stroke-linejoin="round"
                 vector-effect="non-scaling-stroke"
               />
+              <polyline
+                :points="linePoints('dismissed')"
+                fill="none"
+                stroke="#8e8e93"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                vector-effect="non-scaling-stroke"
+              />
             </svg>
             <span
               v-for="(day, index) in trendPoints"
@@ -399,6 +425,7 @@ function openStaleTodos(): void {
               :data-date="day.key"
               :data-created="day.created"
               :data-completed="day.completed"
+              :data-dismissed="day.dismissed"
             >
               <span
                 v-if="day.created"
@@ -409,6 +436,11 @@ function openStaleTodos(): void {
                 v-if="day.completed"
                 class="absolute left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#34C759] ring-2 ring-white dark:bg-[#30D158] dark:ring-[#1c1c1e]"
                 :style="{ top: `${pointY(day.completed)}%` }"
+              ></span>
+              <span
+                v-if="day.dismissed"
+                class="absolute left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#8e8e93] ring-2 ring-white dark:bg-[#98989d] dark:ring-[#1c1c1e]"
+                :style="{ top: `${pointY(day.dismissed)}%` }"
               ></span>
             </span>
             <span
@@ -433,7 +465,8 @@ function openStaleTodos(): void {
         <footer class="mt-2 flex items-center gap-3 text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]">
           <span>{{ summaryLabel }}新增 <b class="font-semibold text-[#007AFF] dark:text-[#64B5FF]">{{ summary.created }}</b></span>
           <span>完成 <b class="font-semibold text-[#34C759] dark:text-[#30D158]">{{ summary.completed }}</b></span>
-          <span class="ml-auto">净 <b class="font-semibold">{{ summary.completed - summary.created }}</b></span>
+          <span>不用处理 <b class="font-semibold text-[#8e8e93] dark:text-[#98989d]">{{ summary.dismissed }}</b></span>
+          <span class="ml-auto">净 <b class="font-semibold">{{ summary.completed + summary.dismissed - summary.created }}</b></span>
         </footer>
 
         <div
@@ -445,6 +478,7 @@ function openStaleTodos(): void {
           <p class="mt-1 flex items-center gap-3 tabular-nums">
             <span class="text-[#007AFF] dark:text-[#64B5FF]">新增 {{ hoverDay.created }}</span>
             <span class="text-[#34C759] dark:text-[#30D158]">完成 {{ hoverDay.completed }}</span>
+            <span class="text-[#8e8e93] dark:text-[#98989d]">不用处理 {{ hoverDay.dismissed }}</span>
           </p>
           <ul v-if="hoverTodos.length" class="mt-1.5 flex flex-col gap-0.5 text-[#6e6e73] dark:text-[#98989d]">
             <li v-for="(title, index) in hoverTodos" :key="index" class="truncate">{{ title }}</li>
@@ -478,6 +512,17 @@ function openStaleTodos(): void {
             :class="staleCount > 0 ? 'text-[#FF9500]' : ''"
           >{{ staleCount }}</p>
           <p class="mt-1 text-[11px] text-[#6e6e73] dark:text-[#98989d]">创建超过 7 天</p>
+        </button>
+        <button
+          type="button"
+          class="ws-overview-stat ws-overview-dismissed-card col-span-2 flex flex-col justify-center rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-3 text-left shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-150 hover:bg-white/[0.92] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#232325]/80 lg:col-span-1"
+          aria-label="查看不用处理待办"
+          title="查看不用处理待办"
+          @click="emit('openTodos', { status: 'DISMISSED' })"
+        >
+          <p class="text-[12px] text-[#6e6e73] dark:text-[#98989d]">不用处理</p>
+          <p class="ws-overview-dismissed mt-0.5 text-[28px] font-semibold leading-none tabular-nums">{{ dismissedCount }}</p>
+          <p class="mt-1 text-[11px] text-[#6e6e73] dark:text-[#98989d]">已标记</p>
         </button>
         <div
           class="ws-overview-projects col-span-2 rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-3 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 lg:col-span-1"

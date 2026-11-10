@@ -25,7 +25,8 @@ public record BackupPayload(
         @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String dueDate,
         Boolean completed,
         @Size(max = 40) String completedAt,
-        Boolean dismissed
+        Boolean dismissed,
+        @Size(max = 40) String dismissedAt
     ) {
     }
 

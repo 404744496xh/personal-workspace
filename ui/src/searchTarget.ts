@@ -34,7 +34,7 @@ export function takeNotesTarget(): NotesTarget | null {
 export interface TodosTarget {
   project?: string
   module?: string
-  status?: 'OPEN'
+  status?: 'OPEN' | 'DISMISSED'
   stale?: boolean
 }
 

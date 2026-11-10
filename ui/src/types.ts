@@ -21,6 +21,7 @@ export interface Todo {
   completed: boolean
   completedAt: string | null
   dismissed: boolean
+  dismissedAt: string | null
   createdAt: string | null
 }
 
@@ -124,6 +125,7 @@ export interface BackupTodo {
   completed: boolean | null
   completedAt: string | null
   dismissed: boolean | null
+  dismissedAt: string | null
 }
 
 export interface BackupProject {

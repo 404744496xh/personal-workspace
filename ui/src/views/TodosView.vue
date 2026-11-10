@@ -838,7 +838,8 @@ async function toggle(todo: Todo): Promise<void> {
     ...todo,
     completed: nextCompleted,
     completedAt: nextCompleted ? new Date().toISOString() : null,
-    dismissed: nextCompleted ? false : todo.dismissed
+    dismissed: nextCompleted ? false : todo.dismissed,
+    dismissedAt: nextCompleted ? null : todo.dismissedAt
   }
   const snapshotItems = items.value.slice()
   const index = items.value.findIndex((item) => item.name === todo.name)
@@ -872,6 +873,7 @@ async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
   const nextTodo: Todo = {
     ...todo,
     dismissed,
+    dismissedAt: dismissed ? new Date().toISOString() : null,
     completed: dismissed ? false : todo.completed,
     completedAt: dismissed ? null : todo.completedAt
   }
