@@ -18,7 +18,6 @@ import { takeSearchTarget, takeTodosTarget } from '../searchTarget'
 import type { NotesTarget } from '../searchTarget'
 import TodoForm from '../components/TodoForm.vue'
 import QuickAddTodo from '../components/QuickAddTodo.vue'
-import ProjectDialog from '../components/ProjectDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
@@ -66,7 +65,6 @@ const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
 
 const formOpen = ref(false)
-const projectOpen = ref(false)
 const editing = ref<Todo | null>(null)
 const saving = ref(false)
 const pendingDelete = ref<Todo | null>(null)
@@ -95,6 +93,12 @@ const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
 const selected = ref<Set<string>>(new Set())
+const showFinished = ref(
+  todosTarget?.project
+    ? (cachedProjects ?? []).some((project) =>
+      project.name === todosTarget.project && project.progress >= 100)
+    : false)
+let jumpApplied = showFinished.value || !todosTarget?.project
 const timeOpen = ref(false)
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
 const savingRename = ref(false)
@@ -123,9 +127,18 @@ const sortDirectionLabel = computed(() => {
   if (sortField.value === 'due') return desc ? '截止晚→早' : '截止早→晚'
   return desc ? '新→旧' : '旧→新'
 })
+const hiddenProjectNames = computed(() => new Set(
+  projects.value.filter((project) => project.progress >= 100)
+    .map((project) => project.name)))
+const hiddenTodoCount = computed(() =>
+  showFinished.value
+    ? 0
+    : items.value.filter((todo) => todo.project && hiddenProjectNames.value.has(todo.project)).length)
 const visibleItems = computed(() => {
   const needle = keyword.value.trim().toLowerCase()
   const filtered = items.value.filter((todo) => {
+    if (!showFinished.value && todo.project
+      && hiddenProjectNames.value.has(todo.project)) return false
     if (needle) {
       const haystack = `${todo.title} ${todo.detail ?? ''}`.toLowerCase()
       if (!haystack.includes(needle)) return false
@@ -156,7 +169,7 @@ const activeProjectTitle = computed(() => {
   return projects.value.find((project) => project.name === activeProject.value)?.title ?? '未分类'
 })
 const displayedTotal = computed(() =>
-  hasFilters.value ? visibleItems.value.length : total.value)
+  hasFilters.value || hiddenTodoCount.value > 0 ? visibleItems.value.length : total.value)
 const truncated = computed(() =>
   activeProject.value === null && total.value > items.value.length)
 
@@ -386,6 +399,12 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
     projects.value = projectList
     items.value = todoList.items
     total.value = todoList.total
+    if (!jumpApplied && todosTarget?.project
+      && projectList.some((project) =>
+        project.name === todosTarget.project && project.progress >= 100)) {
+      showFinished.value = true
+    }
+    jumpApplied = true
     if (selected.value.size) {
       const alive = new Set(todoList.items.map((todo) => todo.name))
       selected.value = new Set([...selected.value].filter((name) => alive.has(name)))
@@ -405,10 +424,6 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   } finally {
     if (seq === requestSeq && !options.silent) loading.value = false
   }
-}
-
-function reloadProjects(): void {
-  void load({ silent: true })
 }
 
 function openCreate(): void {
@@ -948,6 +963,32 @@ onUnmounted(() => {
           aria-hidden="true"
         ></span>
       </Button>
+      <Button
+        :variant="showFinished ? 'primary' : 'secondary'"
+        size="icon"
+        :aria-label="showFinished ? '隐藏已完结项目（进度 100%）' : '显示已完结项目（进度 100%）'"
+        :title="showFinished ? '隐藏已完结项目' : '显示已完结项目'"
+        :aria-pressed="showFinished"
+        @click="showFinished = !showFinished"
+      >
+        <svg v-if="showFinished" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
+          <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+        </svg>
+        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
+          <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+          <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+      </Button>
       <div class="ml-auto flex flex-wrap items-center gap-1.5">
         <span class="hidden h-5 w-px bg-black/[0.07] dark:bg-white/10 sm:block" aria-hidden="true"></span>
         <Button
@@ -963,7 +1004,6 @@ onUnmounted(() => {
             <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </Button>
-        <Button variant="secondary" @click="projectOpen = true">项目管理</Button>
         <Button variant="primary" @click="openCreate">
           <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -1595,13 +1635,6 @@ onUnmounted(() => {
       :default-module="activeModule ?? ''"
       @submit="save"
       @close="closeForm"
-    />
-
-    <ProjectDialog
-      v-if="projectOpen"
-      :projects="projects"
-      @changed="reloadProjects"
-      @close="projectOpen = false"
     />
 
     <ConfirmDialog
