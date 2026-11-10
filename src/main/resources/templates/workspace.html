@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html
+  lang="zh-CN"
+  xmlns:th="https://www.thymeleaf.org"
+  th:replace="~{layout :: html(head = ~{::head}, content = ~{::content})}"
+>
+  <th:block th:fragment="head">
+    <title>个人工作台 - [[${site.title}]]</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <link
+      rel="stylesheet"
+      th:href="@{/plugins/personal-workspace/assets/workspace.css(v=${pluginVersion})}"
+    />
+  </th:block>
+  <th:block th:fragment="content">
+    <div id="workspace-app" class="ws-root" th:attr="data-username=${username}">
+      <div class="ws-boot">正在加载工作台…</div>
+    </div>
+    <noscript>
+      <div class="ws-root">
+        <p>个人工作台需要启用 JavaScript。</p>
+      </div>
+    </noscript>
+    <script
+      type="module"
+      th:src="@{/plugins/personal-workspace/assets/workspace.js(v=${pluginVersion})}"
+    ></script>
+  </th:block>
+</html>

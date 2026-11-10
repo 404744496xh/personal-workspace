@@ -1,0 +1,50 @@
+import com.github.gradle.node.pnpm.task.PnpmTask
+
+plugins {
+    id 'java'
+    id 'run.halo.plugin.devtools' version '0.8.0'
+    id 'com.github.node-gradle.node' version '7.1.0'
+}
+
+group = 'asia.xiahan'
+version = '0.6.7'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation platform('run.halo.tools.platform:plugin:2.26.0')
+    compileOnly 'run.halo.app:api'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-Xlint:deprecation'
+}
+
+node {
+    download = false
+    nodeProjectDir = file("${project.projectDir}/ui")
+}
+
+tasks.register('buildFrontend', PnpmTask) {
+    dependsOn tasks.named('pnpmInstall')
+    args = ['run', 'build']
+}
+
+tasks.named('processResources') {
+    dependsOn 'buildFrontend'
+    from('ui/build/dist') {
+        into 'ui'
+    }
+}
+
+halo {
+    version = '2.26'
+}

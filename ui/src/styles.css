@@ -1,0 +1,159 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@custom-variant dark (&:where([data-ws-theme="dark"], [data-ws-theme="dark"] *));
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+  --color-system-blue: #007aff;
+  --color-system-blue-dark: #0a84ff;
+  --color-ink: #1d1d1f;
+  --color-muted: #6e6e73;
+  --color-canvas: #f5f5f7;
+  --ease-ws: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+:root {
+  --ws-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+@layer base {
+  #workspace-app {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  #workspace-app *,
+  #workspace-app *::before,
+  #workspace-app *::after {
+    box-sizing: border-box;
+  }
+
+  #workspace-app button,
+  #workspace-app input,
+  #workspace-app textarea,
+  #workspace-app select {
+    font: inherit;
+  }
+
+  #workspace-app h1,
+  #workspace-app h2,
+  #workspace-app h3,
+  #workspace-app h4,
+  #workspace-app p,
+  #workspace-app ul,
+  #workspace-app ol {
+    margin: 0;
+  }
+
+  #workspace-app h1,
+  #workspace-app h2,
+  #workspace-app h3,
+  #workspace-app h4 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  #workspace-app ul,
+  #workspace-app ol {
+    padding: 0;
+    list-style: none;
+  }
+
+  #workspace-app button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  #workspace-app a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+#workspace-app ::selection {
+  background: rgba(0, 122, 255, 0.18);
+}
+
+#workspace-app ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+#workspace-app ::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+#workspace-app[data-ws-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#workspace-app .ws-todo.done .ws-todo-top h4 {
+  text-decoration: line-through;
+}
+
+/* Pin the dialog action bar to the bottom edge so 保存 stays reachable while
+   the body scrolls. The -24px bleed matches the modal's p-6 padding. */
+#workspace-app .ws-modal:not(.ws-modal-compact):not(.ws-project-modal) .ws-modal-footer {
+  position: sticky;
+  bottom: -24px;
+  z-index: 30;
+  margin: 8px -24px -24px;
+  padding: 12px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0 0 18px 18px;
+  background: rgba(255, 255, 255, 0.96);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-modal:not(.ws-modal-compact):not(.ws-project-modal) .ws-modal-footer {
+  border-top-color: rgba(255, 255, 255, 0.10);
+  background: rgba(28, 28, 30, 0.96);
+}
+
+
+/* 笔记页内编辑器：沿用页面卡片，去掉 Vditor 自带边框与工具栏 */
+#workspace-app .ws-note-editor .vditor {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+#workspace-app .ws-note-editor .vditor-toolbar {
+  display: none;
+}
+
+#workspace-app .ws-note-editor .vditor-reset {
+  font-size: 15px;
+}
+
+#workspace-app .ws-note-editor .vditor-ir .vditor-reset {
+  padding: 4px 24px 32px;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor {
+  background: #1c1c1e;
+}
+
+/* Vditor 深色主题自带一块偏蓝的底色，和卡片不一致；统一成卡片底色 */
+#workspace-app .ws-note-editor .vditor-ir,
+#workspace-app .ws-note-editor .vditor-ir .vditor-reset {
+  background: transparent;
+}
+
+#workspace-app .ws-note-editor .vditor-outline {
+  background: transparent;
+  border-left-color: rgba(0, 0, 0, 0.06);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor-outline {
+  border-left-color: rgba(255, 255, 255, 0.08);
+}

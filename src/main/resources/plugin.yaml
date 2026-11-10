@@ -1,0 +1,14 @@
+apiVersion: plugin.halo.run/v1alpha1
+kind: Plugin
+metadata:
+  name: personal-workspace
+spec:
+  requires: ">=2.26.0"
+  author:
+    name: xiahan
+    website: https://www.xiahan.asia
+  displayName: "个人工作台"
+  description: "站点前台的个人工作台：待办、项目、命令、笔记与备份，数据按登录用户隔离"
+  license:
+    - name: "MIT"
+      url: https://opensource.org/license/mit
