@@ -67,6 +67,9 @@ public class WorkspaceTodo extends AbstractExtension {
         @Schema(description = "Completion time in ISO-8601, written by the server")
         private String completedAt;
 
+        @Schema(description = "Whether the todo is dismissed and needs no action")
+        private boolean dismissed;
+
         public String getOwner() {
             return owner;
         }
@@ -145,6 +148,14 @@ public class WorkspaceTodo extends AbstractExtension {
 
         public void setCompletedAt(String completedAt) {
             this.completedAt = completedAt;
+        }
+
+        public boolean isDismissed() {
+            return dismissed;
+        }
+
+        public void setDismissed(boolean dismissed) {
+            this.dismissed = dismissed;
         }
     }
 }

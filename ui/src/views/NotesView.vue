@@ -386,7 +386,7 @@ onMounted(() => {
       <Select v-model="todoFilter" class="w-[200px]" aria-label="按待办筛选" :disabled="!todoOptions.length">
         <option value="">全部待办</option>
         <option v-for="todo in todoOptions" :key="todo.name" :value="todo.name">
-          {{ todo.title }}
+          {{ todo.title }}{{ todo.dismissed ? '（不用处理）' : '' }}
         </option>
       </Select>
       <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearFilters">清除筛选</Button>

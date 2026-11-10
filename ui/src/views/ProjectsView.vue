@@ -31,6 +31,7 @@ interface ProjectStats {
   total: number
   open: number
   done: number
+  dismissed: number
 }
 
 const emit = defineEmits<{
@@ -56,9 +57,10 @@ const stats = computed(() => {
   const result = new Map<string, ProjectStats>()
   for (const todo of todos.value) {
     if (!todo.project) continue
-    const entry = result.get(todo.project) ?? { total: 0, open: 0, done: 0 }
+    const entry = result.get(todo.project) ?? { total: 0, open: 0, done: 0, dismissed: 0 }
     entry.total += 1
-    if (todo.completed) entry.done += 1
+    if (todo.dismissed) entry.dismissed += 1
+    else if (todo.completed) entry.done += 1
     else entry.open += 1
     result.set(todo.project, entry)
   }
@@ -74,7 +76,7 @@ const filteredProjects = computed(() => {
 })
 
 function statsOf(name: string): ProjectStats {
-  return stats.value.get(name) ?? { total: 0, open: 0, done: 0 }
+  return stats.value.get(name) ?? { total: 0, open: 0, done: 0, dismissed: 0 }
 }
 
 function persistCache(): void {
@@ -291,7 +293,9 @@ onMounted(() => {
           <div class="min-w-0">
             <h3 class="truncate text-[16px] font-semibold tracking-[-0.01em]">{{ project.title }}</h3>
             <p class="mt-0.5 text-[12px] text-[#6e6e73] dark:text-[#98989d]">
-              {{ statsOf(project.name).total }} 个待办 · {{ statsOf(project.name).open }} 个未完成
+              {{ statsOf(project.name).total }} 个待办 · {{ statsOf(project.name).open }} 个未完成<template
+                v-if="statsOf(project.name).dismissed"
+              > · {{ statsOf(project.name).dismissed }} 个不用处理</template>
             </p>
           </div>
           <div class="flex shrink-0 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">

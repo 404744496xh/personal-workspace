@@ -12,6 +12,7 @@ public record TodoView(
     String dueDate,
     boolean completed,
     String completedAt,
+    boolean dismissed,
     String createdAt
 ) {
 
@@ -28,6 +29,7 @@ public record TodoView(
             spec.getDueDate(),
             spec.isCompleted(),
             spec.getCompletedAt(),
+            spec.isDismissed(),
             created == null ? null : created.toString()
         );
     }

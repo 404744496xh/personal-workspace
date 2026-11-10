@@ -120,8 +120,10 @@ function apply(): void {
             />
             <span
               class="min-w-0 truncate"
-              :class="todo.completed ? 'text-[#8e8e93] line-through dark:text-[#98989d]' : ''"
-            >{{ todo.title }}</span>
+              :class="todo.completed
+                ? 'text-[#8e8e93] line-through dark:text-[#98989d]'
+                : todo.dismissed ? 'text-[#8e8e93] dark:text-[#98989d]' : ''"
+            >{{ todo.title }}{{ todo.dismissed ? '（不用处理）' : '' }}</span>
             <span
               v-if="todo.module"
               class="ml-auto shrink-0 truncate text-[11px] text-[#6e6e73] dark:text-[#98989d]"

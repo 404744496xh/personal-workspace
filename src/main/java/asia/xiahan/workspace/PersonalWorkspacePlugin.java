@@ -25,6 +25,8 @@ public class PersonalWorkspacePlugin extends BasePlugin {
                 .indexFunc(todo -> todo.getSpec().getOwner()));
             specs.add(IndexSpecs.<WorkspaceTodo, Boolean>single("spec.completed", Boolean.class)
                 .indexFunc(todo -> todo.getSpec().isCompleted()));
+            specs.add(IndexSpecs.<WorkspaceTodo, Boolean>single("spec.dismissed", Boolean.class)
+                .indexFunc(todo -> todo.getSpec().isDismissed()));
             specs.add(IndexSpecs.<WorkspaceTodo, String>single("spec.priority", String.class)
                 .indexFunc(todo -> todo.getSpec().getPriority()));
             specs.add(IndexSpecs.<WorkspaceTodo, String>single("spec.dueDate", String.class)

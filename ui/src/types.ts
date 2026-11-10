@@ -20,6 +20,7 @@ export interface Todo {
   dueDate: string | null
   completed: boolean
   completedAt: string | null
+  dismissed: boolean
   createdAt: string | null
 }
 
@@ -38,6 +39,7 @@ export interface TodoPayload {
   module: string | null
   dueDate: string | null
   completed: boolean
+  dismissed?: boolean
 }
 
 export interface ProjectPayload {
@@ -121,6 +123,7 @@ export interface BackupTodo {
   dueDate: string | null
   completed: boolean | null
   completedAt: string | null
+  dismissed: boolean | null
 }
 
 export interface BackupProject {

@@ -58,9 +58,12 @@ public class WorkspaceDataAccess {
             ));
         }
         if ("OPEN".equals(query.status())) {
-            condition = condition.and(Queries.equal("spec.completed", false));
+            condition = condition.and(Queries.equal("spec.completed", false))
+                .and(Queries.equal("spec.dismissed", false));
         } else if ("DONE".equals(query.status())) {
             condition = condition.and(Queries.equal("spec.completed", true));
+        } else if ("DISMISSED".equals(query.status())) {
+            condition = condition.and(Queries.equal("spec.dismissed", true));
         }
         if (!query.priority().isEmpty()) {
             condition = condition.and(Queries.equal("spec.priority", query.priority()));
@@ -297,6 +300,7 @@ public class WorkspaceDataAccess {
                 }
                 var hits = new ArrayList<SearchHit>();
                 todoList.stream()
+                    .filter(todo -> !todo.getSpec().isDismissed())
                     .filter(todo -> matches(needle, todo.getSpec().getTitle(),
                         todo.getSpec().getDetail(), todo.getSpec().getModule(),
                         projectTitles.get(todo.getSpec().getProject())))
@@ -354,7 +358,8 @@ public class WorkspaceDataAccess {
                         todo.getSpec().getModule(),
                         todo.getSpec().getDueDate(),
                         todo.getSpec().isCompleted(),
-                        todo.getSpec().getCompletedAt()))
+                        todo.getSpec().getCompletedAt(),
+                        todo.getSpec().isDismissed()))
                     .toList();
                 var projects = tuple.getT2().stream()
                     .map(project -> new BackupPayload.BackupProject(
@@ -420,9 +425,11 @@ public class WorkspaceDataAccess {
             spec.setProject(mappedProject);
             spec.setModule(normalizeModule(mappedProject, source.module()));
             spec.setDueDate(normalizeDueDate(source.dueDate()));
-            var completed = Boolean.TRUE.equals(source.completed());
+            var dismissed = Boolean.TRUE.equals(source.dismissed());
+            var completed = !dismissed && Boolean.TRUE.equals(source.completed());
             spec.setCompleted(completed);
             spec.setCompletedAt(completed ? parseInstantOrNow(source.completedAt()) : null);
+            spec.setDismissed(dismissed);
             todo.setSpec(spec);
             var oldTodoName = trimToNull(source.name());
             if (oldTodoName != null) {
@@ -555,6 +562,17 @@ public class WorkspaceDataAccess {
         spec.setProject(normalizeProject(request.project()));
         spec.setModule(normalizeModule(request.project(), request.module()));
         spec.setDueDate(normalizeDueDate(request.dueDate()));
+        var requestDismissed = Boolean.TRUE.equals(request.dismissed());
+        if (requestDismissed && Boolean.TRUE.equals(request.completed())) {
+            throw ApiException.badRequest("completed 与 dismissed 不能同时为 true");
+        }
+        if (creating || request.dismissed() != null) {
+            spec.setDismissed(requestDismissed);
+            if (requestDismissed) {
+                spec.setCompleted(false);
+                spec.setCompletedAt(null);
+            }
+        }
         Boolean target = creating
             ? Boolean.valueOf(Boolean.TRUE.equals(request.completed()))
             : request.completed();
@@ -564,6 +582,9 @@ public class WorkspaceDataAccess {
             if (creating || completed != wasCompleted) {
                 spec.setCompleted(completed);
                 spec.setCompletedAt(completed ? Instant.now().toString() : null);
+            }
+            if (completed) {
+                spec.setDismissed(false);
             }
         }
     }

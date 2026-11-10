@@ -27,7 +27,7 @@ import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
 import Select from '../components/ui/Select.vue'
 
-type StatusFilter = 'ALL' | 'OPEN' | 'DONE'
+type StatusFilter = 'ALL' | 'OPEN' | 'DONE' | 'DISMISSED'
 type SortField = 'created' | 'completed' | 'due' | 'priority'
 type SortDirection = 'desc' | 'asc'
 
@@ -134,17 +134,18 @@ const hiddenTodoCount = computed(() =>
   showFinished.value
     ? 0
     : items.value.filter((todo) => todo.project && hiddenProjectNames.value.has(todo.project)).length)
+const dismissedCount = computed(() =>
+  status.value === 'ALL' ? items.value.filter((todo) => todo.dismissed).length : 0)
 const visibleItems = computed(() => {
   const needle = keyword.value.trim().toLowerCase()
   const filtered = items.value.filter((todo) => {
     if (!showFinished.value && todo.project
       && hiddenProjectNames.value.has(todo.project)) return false
+    if (!matchesStatus(todo)) return false
     if (needle) {
       const haystack = `${todo.title} ${todo.detail ?? ''}`.toLowerCase()
       if (!haystack.includes(needle)) return false
     }
-    if (status.value === 'OPEN' && todo.completed) return false
-    if (status.value === 'DONE' && !todo.completed) return false
     if (priority.value && todo.priority !== priority.value) return false
     if (activeProject.value !== null && projectKeyOf(todo) !== activeProject.value) return false
     if (activeModule.value !== null && (todo.module ?? '') !== activeModule.value) return false
@@ -169,9 +170,18 @@ const activeProjectTitle = computed(() => {
   return projects.value.find((project) => project.name === activeProject.value)?.title ?? '未分类'
 })
 const displayedTotal = computed(() =>
-  hasFilters.value || hiddenTodoCount.value > 0 ? visibleItems.value.length : total.value)
+  hasFilters.value || hiddenTodoCount.value + dismissedCount.value > 0
+    ? visibleItems.value.length
+    : total.value)
 const truncated = computed(() =>
   activeProject.value === null && total.value > items.value.length)
+
+function matchesStatus(todo: Todo): boolean {
+  if (status.value === 'OPEN') return !todo.completed && !todo.dismissed
+  if (status.value === 'DONE') return todo.completed
+  if (status.value === 'DISMISSED') return todo.dismissed
+  return !todo.dismissed
+}
 
 function projectKeyOf(todo: Todo): string {
   return todo.project && projects.value.some((project) => project.name === todo.project)
@@ -694,10 +704,11 @@ function projectTitleOf(todo: Todo): string {
 
 function buildCopyText(todos: Todo[]): string {
   return todos.map((todo) => {
-    const marker = todo.completed ? '[x]' : '[ ]'
+    const marker = todo.completed ? '[x]' : todo.dismissed ? '[-]' : '[ ]'
     let line = `${marker} ${todo.title}（${priorityLabel(todo.priority)}） — ${projectTitleOf(todo)}`
     if (todo.module) line += ` / ${todo.module}`
     if (todo.dueDate) line += ` · 截止 ${todo.dueDate}`
+    if (todo.dismissed) line += ' · 不用处理'
     if (todo.completedAt) line += ` · 完成于 ${formatDateTime(todo.completedAt)}`
     if (todo.detail) line += `\n    ${todo.detail.replace(/\r?\n/g, '\n    ')}`
     return line
@@ -805,33 +816,57 @@ async function toggle(todo: Todo): Promise<void> {
     completed: !todo.completed
   }
   const nextCompleted = !todo.completed
-  const stillMatches = status.value === 'ALL'
-    || (status.value === 'OPEN' && !nextCompleted)
-    || (status.value === 'DONE' && nextCompleted)
-  const snapshotItems = items.value.slice()
-  const snapshotTotal = total.value
-  if (stillMatches) {
-    const index = items.value.findIndex((item) => item.name === todo.name)
-    if (index >= 0) {
-      items.value[index] = {
-        ...todo,
-        completed: nextCompleted,
-        completedAt: nextCompleted ? new Date().toISOString() : null
-      }
-    }
-  } else {
-    items.value = items.value.filter((item) => item.name !== todo.name)
-    total.value = Math.max(0, total.value - 1)
+  const nextTodo: Todo = {
+    ...todo,
+    completed: nextCompleted,
+    completedAt: nextCompleted ? new Date().toISOString() : null,
+    dismissed: nextCompleted ? false : todo.dismissed
   }
+  const snapshotItems = items.value.slice()
+  const index = items.value.findIndex((item) => item.name === todo.name)
+  if (index >= 0) items.value[index] = nextTodo
   try {
     const updated = await updateTodo(todo.name, payload)
-    if (stillMatches) {
-      const index = items.value.findIndex((item) => item.name === todo.name)
-      if (index >= 0) items.value[index] = updated
-    }
+    const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
+    if (updatedIndex >= 0) items.value[updatedIndex] = updated
   } catch (err) {
     items.value = snapshotItems
-    total.value = snapshotTotal
+    handleError(err)
+  } finally {
+    busy.value = null
+    persistCache()
+  }
+}
+
+async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
+  if (busy.value) return
+  busy.value = todo.name
+  const payload: TodoPayload = {
+    title: todo.title,
+    detail: todo.detail,
+    priority: todo.priority,
+    project: todo.project,
+    module: todo.module,
+    dueDate: todo.dueDate,
+    completed: dismissed ? false : todo.completed,
+    dismissed
+  }
+  const nextTodo: Todo = {
+    ...todo,
+    dismissed,
+    completed: dismissed ? false : todo.completed,
+    completedAt: dismissed ? null : todo.completedAt
+  }
+  const snapshotItems = items.value.slice()
+  const index = items.value.findIndex((item) => item.name === todo.name)
+  if (index >= 0) items.value[index] = nextTodo
+  try {
+    const updated = await updateTodo(todo.name, payload)
+    const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
+    if (updatedIndex >= 0) items.value[updatedIndex] = updated
+    showToast(dismissed ? '已标记为不用处理' : '已恢复到待办')
+  } catch (err) {
+    items.value = snapshotItems
     handleError(err)
   } finally {
     busy.value = null
@@ -841,9 +876,7 @@ async function toggle(todo: Todo): Promise<void> {
 
 function askDelete(todo: Todo): void {
   pendingDelete.value = todo
-}
-
-async function removeConfirmed(): Promise<void> {
+}async function removeConfirmed(): Promise<void> {
   const todo = pendingDelete.value
   if (!todo) return
   const snapshotItems = items.value.slice()
@@ -863,7 +896,8 @@ async function removeConfirmed(): Promise<void> {
 }
 
 function isOverdue(todo: Todo): boolean {
-  return Boolean(todo.dueDate && !todo.completed && todo.dueDate < todayString())
+  return Boolean(todo.dueDate && !todo.completed && !todo.dismissed
+    && todo.dueDate < todayString())
 }
 
 onMounted(() => {
@@ -901,6 +935,7 @@ onUnmounted(() => {
         <option value="ALL">全部状态</option>
         <option value="OPEN">未完成</option>
         <option value="DONE">已完成</option>
+        <option value="DISMISSED">不用处理</option>
       </Select>
       <Select v-model="priority" class="w-[118px]" aria-label="优先级">
         <option value="">全部优先级</option>
@@ -1140,10 +1175,11 @@ onUnmounted(() => {
         class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
       >
         <p class="ws-state-title text-[15px] font-semibold">
-          {{ hasFilters ? '没有匹配的待办' : '还没有待办' }}
+          {{ hasFilters ? '没有匹配的待办' : dismissedCount > 0 ? '待办都已标为不用处理' : '还没有待办' }}
         </p>
         <p class="ws-muted text-[13px] text-[#6e6e73] dark:text-[#98989d]">
-          {{ hasFilters ? '换个关键词或筛选条件试试' : '先写下今天最重要的一件事' }}
+          {{ hasFilters ? '换个关键词或筛选条件试试'
+            : dismissedCount > 0 ? '需要时可在状态筛选切到「不用处理」找回' : '先写下今天最重要的一件事' }}
         </p>
         <Button
           v-if="hasFilters"
@@ -1151,6 +1187,12 @@ onUnmounted(() => {
           variant="secondary"
           @click="clearAllFilters"
         >清除筛选</Button>
+        <Button
+          v-else-if="dismissedCount > 0"
+          class="mt-2"
+          variant="secondary"
+          @click="status = 'DISMISSED'"
+        >查看不用处理</Button>
         <Button
           v-else
           class="mt-2"
@@ -1414,6 +1456,7 @@ onUnmounted(() => {
               class="ws-todo group flex items-start gap-1 rounded-xl px-1 transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
               :class="{
                 done: todo.completed,
+                dismissed: todo.dismissed,
                 'bg-[#007AFF]/[0.06] dark:bg-[#0A84FF]/[0.10]': selecting && selected.has(todo.name)
               }"
             >
@@ -1450,10 +1493,14 @@ onUnmounted(() => {
                 <div class="ws-todo-top flex items-baseline gap-2">
                   <h4
                     class="min-w-0 flex-1 truncate text-[14px]"
-                    :class="todo.completed
+                    :class="todo.completed || todo.dismissed
                       ? 'text-[#1d1d1f]/45 dark:text-[#f5f5f7]/40'
                       : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
                   >{{ todo.title }}</h4>
+                  <span
+                    v-if="todo.dismissed"
+                    class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
+                  >不用处理</span>
                   <span
                     class="ws-prio shrink-0 text-[11px] font-medium tabular-nums"
                     :class="priorityClass(todo.priority)"
@@ -1514,6 +1561,35 @@ onUnmounted(() => {
                       stroke-width="1.4"
                     />
                     <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                  </svg>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  :disabled="busy === todo.name"
+                  :aria-label="todo.dismissed
+                    ? `恢复 ${todo.title} 到待办`
+                    : `将 ${todo.title} 标记为不用处理`"
+                  :title="todo.dismissed ? '恢复到待办' : '不用处理'"
+                  @click="setDismissed(todo, !todo.dismissed)"
+                >
+                  <svg v-if="todo.dismissed" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M3.5 7a4.8 4.8 0 118.2 3.4M3.5 3.5V7h3.5"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M2.5 4h11v2.2h-11zM3.7 6.2V13h8.6V6.2M6.3 9h3.4"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
                   </svg>
                 </Button>
                 <Button variant="ghost" size="icon" aria-label="编辑" title="编辑" @click="openEdit(todo)">

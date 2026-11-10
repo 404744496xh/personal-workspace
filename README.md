@@ -2,13 +2,14 @@
 
 Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记与备份，所有数据按登录用户隔离。后端 Java 21 + WebFlux，前端 Vue 3 + Vite，页面挂在站点前台 `/workspace`，不进入 Console。
 
-当前版本：`0.6.22`。
+当前版本：`0.6.23`。
 
 ## 功能
 
 - 前台页面 `/workspace`：未登录跳转 `/login?redirect_uri=%2Fworkspace`，登录后回到工作台
 - 待办：创建 / 编辑 / 完成切换 / 删除 / 关键词搜索 / 状态筛选 / 优先级筛选 / 创建时间与完成时间排序及日期区间筛选 / 分页；每条待办显示创建时间（`创建于 年-月-日 时:分`），有待办截止或完成时间时与之同行展示
-- 待办多选：工具栏「多选」进入选择态，勾选多条后可全选 / 清除 / 一键复制为纯文本（含标题、优先级、项目/模块、截止与完成时间），退出后恢复完成勾选；选择态下项目标题与模块标题前出现复选框，可按项目 / 模块一键全选，顶部全选覆盖当前可见的全部待办
+- 待办状态：未完成 / 已完成 / 不用处理；「全部状态」默认不包含不用处理，在状态筛选切到「不用处理」查看，行内悬停可标记或恢复；标记不用处理会清空完成时间，勾选完成会从不用处理恢复为已完成
+- 待办多选：工具栏「多选」进入选择态，勾选多条后可全选 / 清除 / 一键复制为纯文本（含状态标记、标题、优先级、项目/模块、截止与完成时间），退出后恢复完成勾选；选择态下项目标题与模块标题前出现复选框，可按项目 / 模块一键全选，顶部全选覆盖当前可见的全部待办
 - 待办归属项目与模块：项目下维护模块列表；待办表单的模块支持直接输入新模块，保存时自动加入项目
 - 模块重命名：模块标题行悬停铅笔行内改名，项目表单的模块标签点击即可改名；服务端原子替换模块名并迁移该项目下引用旧名的所有待办
 - 排序：排序字段（创建时间 / 完成时间 / 截止时间 / 优先级）与方向按钮分开，方向一键切换（新→旧、高→低等）；无完成时间 / 无截止时间的待办始终排在末尾
@@ -19,7 +20,7 @@ Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记
 - 进度 100% 的项目默认从待办列表隐藏；工具栏眼睛按钮可切换显示 / 隐藏，从项目页「查看待办」进入这类项目时自动打开
 - 待办跳笔记：项目/模块标题与每条待办行悬停出现「查看关联笔记」图标；只有一篇关联笔记时直接打开编辑器，多篇时进入笔记页并带入项目/模块/待办筛选
 - 就地建笔记：同一位置悬停还有「新建笔记」图标，点击直接进入笔记编辑器并预填对应项目/模块/待办（待办处新建会一并带入其项目与模块），返回后列表按该位置筛选
-- 项目页：项目卡片展示进度、待办统计（总数 / 未完成）、模块、备注与关联链接；支持新建、编辑进度/备注/链接、删除；卡片悬停出现「查看关联笔记」「查看待办」，笔记单篇直接打开、多篇进入笔记页并带入该项目筛选（含该项目下模块与待办关联的笔记），待办进入待办页并筛到该项目
+- 项目页：项目卡片展示进度、待办统计（总数 / 未完成 / 不用处理）、模块、备注与关联链接；支持新建、编辑进度/备注/链接、删除；卡片悬停出现「查看关联笔记」「查看待办」，笔记单篇直接打开、多篇进入笔记页并带入该项目筛选（含该项目下模块与待办关联的笔记），待办进入待办页并筛到该项目
 - 快速命令：按分类筛选与搜索，命令块一键复制，支持增删改
 - 笔记：页内 Markdown 编辑器（Vditor IR 模式，与写作台同款），标题与正文直接铺开在页面上，编辑器占满主区高度，卡片不会在下方留出空白；保存 / 取消固定在编辑器顶部；返回或取消时若有未保存内容会二次确认，`Ctrl/Cmd + S` 可保存；正文不显示工具栏，直接按 Markdown 书写；正文底部保留可点击的空白，代码块、表格落在末尾时也能直接点下方继续写
 - 笔记大纲：正文有标题时右侧默认收起为贴右缘的标题轨道，悬停展开完整列表、点 ‹ 展开为「大纲」悬浮卡片（与写作台一致），卡片可点 › 重新收起；点击标题平滑滚动到对应位置；折叠偏好写入本地存储
@@ -30,7 +31,7 @@ Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记
 - 笔记关联：可关联项目、模块与多个待办；卡片展示关联标签，全局搜索可命中关联的项目 / 模块 / 待办标题
 - 笔记粘贴图片：编辑器内直接粘贴或拖入图片，自动上传为站点附件并插入 Markdown 图片；正文只保存访问地址，不存二进制
 - 全局搜索：左侧栏底部跨待办、项目、命令、笔记搜索，点击结果跳到对应页面并带入关键词
-- 备份：导出全部数据为 JSON；导入支持合并与覆盖（覆盖前二次确认），保留完成时间、项目进度、笔记更新时间与笔记关联；图片仅保留 URL，旧版含书签的备份仍可导入（书签被忽略）
+- 备份：导出全部数据为 JSON；导入支持合并与覆盖（覆盖前二次确认），保留完成时间、不用处理状态、项目进度、笔记更新时间与笔记关联；图片仅保留 URL，旧版含书签的备份仍可导入（书签被忽略）
 - 前端使用 Tailwind CSS 与 shadcn 风格基础组件（Button / Input / Select / Textarea），笔记正文使用 Vditor；苹果 HIG 视觉：毛玻璃卡片、18px 圆角、胶囊按钮、最小 44px 点击区，浅色/深色自动切换
 - 弹窗操作栏固定在弹窗底部：表单较长时内容区独立滚动，无需滚到底即可点到「保存」，浅色/深色一致
 - 布局：页面标题、副标题、全局搜索与主题切换都在左侧栏内，主区不再占用页头高度，直接是工具区与内容
@@ -51,13 +52,13 @@ Halo 2.26+ 前台个人工作台插件：待办、项目、快速命令、笔记
 ./gradlew build
 
 # 产物
-build/libs/personal-workspace-0.6.22.jar
+build/libs/personal-workspace-0.6.23.jar
 
 # 启动本地 Halo（Docker，默认 8090 端口）
 ./gradlew haloServer
 ```
 
-安装：打开 `http://localhost:8090/console`，进入「插件 → 安装」，上传 `build/libs/personal-workspace-0.6.22.jar`，安装后启用。随后访问 `http://localhost:8090/workspace`。
+安装：打开 `http://localhost:8090/console`，进入「插件 → 安装」，上传 `build/libs/personal-workspace-0.6.23.jar`，安装后启用。随后访问 `http://localhost:8090/workspace`。
 
 Windows 下如果 Halo 工作目录被解析成盘符路径导致 R2DBC 报错，用显式路径启动：
 
@@ -97,7 +98,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/todos` | 列表，参数 `q`、`status=all\|open\|done`、`priority=HIGH\|MEDIUM\|LOW`、`page`（默认 1）、`size`（默认 20，上限 500） |
+| GET | `/todos` | 列表，参数 `q`、`status=all\|open\|done\|dismissed`、`priority=HIGH\|MEDIUM\|LOW`、`page`（默认 1）、`size`（默认 20，上限 500） |
 | GET | `/todos/{name}` | 详情，非本人数据返回 404 |
 | POST | `/todos` | 创建，`metadata.name` 由服务端生成 |
 | PUT | `/todos/{name}` | 更新，非本人数据返回 404 |
@@ -120,7 +121,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 | GET | `/backup` | 导出当前用户全部数据（版本 1） |
 | POST | `/backup?replace=true\|false` | 导入备份；`replace=true` 先清空当前数据再导入 |
 
-待办请求体字段：`title`（必填，≤200）、`detail`（≤5000）、`priority`（必填 `HIGH/MEDIUM/LOW`）、`project`（项目 name，可空）、`module`（≤32，项目为空时忽略）、`dueDate`（`YYYY-MM-DD`）、`completed`。`completedAt` 与 `createdAt` 由服务端维护，客户端无法写入。
+待办请求体字段：`title`（必填，≤200）、`detail`（≤5000）、`priority`（必填 `HIGH/MEDIUM/LOW`）、`project`（项目 name，可空）、`module`（≤32，项目为空时忽略）、`dueDate`（`YYYY-MM-DD`）、`completed`、`dismissed`（与 `completed` 互斥）。`completedAt` 与 `createdAt` 由服务端维护，客户端无法写入。
 
 项目请求体字段：`title`（必填，≤200）、`modules`（≤20 个，每个 ≤32）、`progress`（0–100，可空）、`note`（≤2000）、`links`（≤20 个，每个 ≤2000）、`tags`（≤10 个，每个 ≤32）。
 
@@ -143,6 +144,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
       "dueDate": "2026-11-10",
       "completed": false,
       "completedAt": null,
+      "dismissed": false,
       "createdAt": "2026-11-09T03:00:00Z"
     }
   ],
@@ -160,7 +162,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 
 | Kind | 用途 | 索引 |
 | --- | --- | --- |
-| WorkspaceTodo | 待办（`project`、`module`、`completedAt`） | `spec.owner`、`spec.completed`、`spec.priority`、`spec.dueDate`、`spec.title`、`spec.detail`、`spec.tags`（multi） |
+| WorkspaceTodo | 待办（`project`、`module`、`completedAt`、`dismissed`） | `spec.owner`、`spec.completed`、`spec.dismissed`、`spec.priority`、`spec.dueDate`、`spec.title`、`spec.detail`、`spec.tags`（multi） |
 | WorkspaceProject | 项目（`title`、`modules`、`progress`、`note`、`links`、`tags`） | `spec.owner` |
 | WorkspaceQuickCmd | 快速命令（`title`、`command`、`category`） | `spec.owner` |
 | WorkspaceNote | 笔记（Markdown `content`、关联 `project` / `module` / `todos`、`updatedAt`） | `spec.owner` |
@@ -179,8 +181,8 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`
 - 不带 `confirm` 删除：400；带 `confirm=true`：204
 - 删除仍有待办的项目：409；删除空项目：204
 - 创建时伪造 `owner`：被服务端覆盖为当前用户
-- 勾选完成写入 `completedAt`，取消完成清空；编辑已完成待办不覆盖完成时间
-- 客户端提交 `completedAt`、新增模型的未知字段：400
+- 勾选完成写入 `completedAt`，取消完成清空；编辑已完成待办不覆盖完成时间；标记不用处理会清空完成时间，勾选完成会清除不用处理
+- `completed` 与 `dismissed` 同时为 true：400；客户端提交 `completedAt`、新增模型的未知字段：400
 - 非法优先级、非法进度、超长笔记：400
 - 项目部分更新保留未传的进度/备注/链接；空字符串可清空备注
 - 全局搜索命中四类数据；笔记命中项的副标题显示关联项目名；空关键词返回空结果

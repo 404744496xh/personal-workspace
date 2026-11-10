@@ -468,7 +468,7 @@ public class WorkspaceEndpoint implements CustomEndpoint {
             throw ApiException.badRequest("搜索关键词不能超过 100 个字符");
         }
         var status = request.queryParam("status").orElse("all").trim().toUpperCase(Locale.ROOT);
-        if (!Set.of("ALL", "OPEN", "DONE").contains(status)) {
+        if (!Set.of("ALL", "OPEN", "DONE", "DISMISSED").contains(status)) {
             throw ApiException.badRequest("status 参数不合法");
         }
         var priority = request.queryParam("priority").orElse("").trim().toUpperCase(Locale.ROOT);
