@@ -20,7 +20,12 @@ import Input from '../components/ui/Input.vue'
 import ProjectForm from '../components/ProjectForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
+import ToolsToggle from '../components/ToolsToggle.vue'
 import { toolsCollapsed } from '../collapse'
+import { readCache, writeCache } from '../cache'
+
+const cachedProjects = readCache<Project[]>('projects')
+const cachedTodos = readCache<{ items: Todo[]; total: number }>('todos')
 
 interface ProjectStats {
   total: number
@@ -34,10 +39,10 @@ const emit = defineEmits<{
   openTodos: [target: TodosTarget]
 }>()
 
-const projects = ref<Project[]>([])
-const todos = ref<Todo[]>([])
+const projects = ref<Project[]>(cachedProjects ?? [])
+const todos = ref<Todo[]>(cachedTodos?.items ?? [])
 const keyword = ref(takeSearchTarget())
-const loading = ref(true)
+const loading = ref(!cachedProjects)
 const error = ref('')
 
 const formOpen = ref(false)
@@ -72,6 +77,11 @@ function statsOf(name: string): ProjectStats {
   return stats.value.get(name) ?? { total: 0, open: 0, done: 0 }
 }
 
+function persistCache(): void {
+  writeCache('projects', projects.value)
+  writeCache('todos', { items: todos.value, total: todos.value.length })
+}
+
 function handleError(err: unknown): void {
   if (err instanceof ApiError && err.status === 401) {
     emit('unauthorized')
@@ -80,8 +90,8 @@ function handleError(err: unknown): void {
   show(messageOf(err))
 }
 
-async function load(): Promise<void> {
-  loading.value = true
+async function load(options: { silent?: boolean } = {}): Promise<void> {
+  if (!options.silent) loading.value = true
   error.value = ''
   try {
     const [projectList, todoList] = await Promise.all([
@@ -90,6 +100,8 @@ async function load(): Promise<void> {
     ])
     projects.value = projectList
     todos.value = todoList.items
+    writeCache('projects', projectList)
+    writeCache('todos', { items: todoList.items, total: todoList.total })
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       emit('unauthorized')
@@ -130,6 +142,7 @@ async function save(payload: ProjectPayload): Promise<void> {
       projects.value = [...projects.value, created]
       show('已创建项目')
     }
+    persistCache()
     formOpen.value = false
     editing.value = null
   } catch (err) {
@@ -177,6 +190,7 @@ async function onModuleRenamed(from: string, to: string): Promise<void> {
     if (index >= 0) projects.value[index] = updated
     todos.value = todos.value.map((todo) =>
       todo.project === project.name && todo.module === from ? { ...todo, module: to } : todo)
+    persistCache()
     show('已重命名模块')
   } catch (err) {
     handleError(err)
@@ -190,6 +204,7 @@ async function removeConfirmed(): Promise<void> {
   try {
     await deleteProject(project.name)
     projects.value = projects.value.filter((item) => item.name !== project.name)
+    persistCache()
     show('已删除项目')
   } catch (err) {
     handleError(err)
@@ -197,12 +212,19 @@ async function removeConfirmed(): Promise<void> {
 }
 
 onMounted(() => {
-  void load()
+  void load({ silent: Boolean(cachedProjects) })
 })
 </script>
 
 <template>
   <div class="ws-view">
+    <ToolsToggle
+      v-if="toolsCollapsed"
+      v-model="keyword"
+      placeholder="搜索项目、模块或备注"
+      search-label="搜索项目"
+      @expand="toolsCollapsed = false"
+    />
     <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">

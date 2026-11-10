@@ -77,6 +77,17 @@ export interface Note {
   updatedAt: string
 }
 
+export interface NoteSummary {
+  name: string
+  title: string
+  excerpt: string
+  tags: string[]
+  project: string | null
+  module: string | null
+  todos: string[]
+  updatedAt: string
+}
+
 export interface NotePayload {
   title: string
   content: string

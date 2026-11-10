@@ -4,12 +4,13 @@ import {
   ApiError,
   createNote,
   deleteNote,
+  getNote,
   listNotes,
   listProjects,
   listTodos,
   updateNote
 } from '../api'
-import type { Note, NotePayload, Project, Todo } from '../types'
+import type { Note, NotePayload, NoteSummary, Project, Todo } from '../types'
 import { excerpt, formatDateTime, messageOf } from '../utils'
 import { takeNotesTarget, takeSearchTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
@@ -19,14 +20,20 @@ import Select from '../components/ui/Select.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
+import ToolsToggle from '../components/ToolsToggle.vue'
 import { toolsCollapsed } from '../collapse'
+import { readCache, writeCache } from '../cache'
+
+const cachedNotes = readCache<NoteSummary[]>('notes')
+const cachedProjects = readCache<Project[]>('projects')
+const cachedTodos = readCache<{ items: Todo[]; total: number }>('todos')
 
 const emit = defineEmits<{ unauthorized: [] }>()
 
 const target = takeNotesTarget()
-const notes = ref<Note[]>([])
-const projects = ref<Project[]>([])
-const todos = ref<Todo[]>([])
+const notes = ref<NoteSummary[]>(cachedNotes ?? [])
+const projects = ref<Project[]>(cachedProjects ?? [])
+const todos = ref<Todo[]>(cachedTodos?.items ?? [])
 const keyword = ref(takeSearchTarget())
 const projectFilter = ref(
   target?.project !== undefined ? (target.project === '' ? '__none__' : target.project) : ''
@@ -38,14 +45,15 @@ const todoFilter = ref(target?.todo ?? '')
 const includeProjectTodos = ref(target?.includeProjectTodos === true)
 const pendingNoteName = ref(target?.noteName ?? null)
 const pendingCreate = ref(target?.create === true)
-const loading = ref(true)
+const loading = ref(!cachedNotes)
 const error = ref('')
 
 const editorOpen = ref(false)
 const editing = ref<Note | null>(null)
+const opening = ref(false)
 const createDefaults = ref<{ project?: string; module?: string; todo?: string }>({})
 const saving = ref(false)
-const pendingDelete = ref<Note | null>(null)
+const pendingDelete = ref<NoteSummary | null>(null)
 const { toast, show } = useToast()
 
 const sortedNotes = computed(() => [...notes.value].sort((left, right) =>
@@ -86,8 +94,10 @@ const todoOptions = computed(() =>
 
 const hasFilters = computed(() => keyword.value.trim() !== ''
   || projectFilter.value !== '' || moduleFilter.value !== '' || todoFilter.value !== '')
+const hasHiddenFilters = computed(() => projectFilter.value !== ''
+  || moduleFilter.value !== '' || todoFilter.value !== '')
 
-function matchesFilters(note: Note): boolean {
+function matchesFilters(note: NoteSummary): boolean {
   if (projectFilter.value) {
     if (projectFilter.value === '__none__') {
       if (note.project) return false
@@ -118,7 +128,7 @@ const filteredNotes = computed(() => {
     if (!needle) return true
     const haystack = [
       note.title,
-      note.content,
+      note.excerpt,
       projectTitleOf(note.project),
       note.module ?? '',
       ...note.todos.map(todoTitleOf)
@@ -168,8 +178,8 @@ function handleError(err: unknown): void {
   show(messageOf(err))
 }
 
-async function load(): Promise<void> {
-  loading.value = true
+async function load(options: { silent?: boolean } = {}): Promise<void> {
+  if (!options.silent) loading.value = true
   error.value = ''
   try {
     const [noteList, projectList, todoList] = await Promise.all([
@@ -180,13 +190,16 @@ async function load(): Promise<void> {
     notes.value = noteList
     projects.value = projectList
     todos.value = todoList.items
+    writeCache('notes', noteList)
+    writeCache('projects', projectList)
+    writeCache('todos', { items: todoList.items, total: todoList.total })
     if (pendingCreate.value) {
       pendingCreate.value = false
       openCreateFromTarget()
     } else if (pendingNoteName.value) {
       const note = noteList.find((item) => item.name === pendingNoteName.value)
       pendingNoteName.value = null
-      if (note) openEdit(note)
+      if (note) void openEdit(note)
     }
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
@@ -227,10 +240,32 @@ function openCreateFromTarget(): void {
   editorOpen.value = true
 }
 
-function openEdit(note: Note): void {
-  createDefaults.value = {}
-  editing.value = note
-  editorOpen.value = true
+function openEdit(note: NoteSummary): void {
+  if (opening.value) return
+  opening.value = true
+  void getNote(note.name)
+    .then((full) => {
+      createDefaults.value = {}
+      editing.value = full
+      editorOpen.value = true
+    })
+    .catch(handleError)
+    .finally(() => {
+      opening.value = false
+    })
+}
+
+function toSummary(note: Note): NoteSummary {
+  return {
+    name: note.name,
+    title: note.title,
+    excerpt: excerpt(note.content, 220),
+    tags: note.tags,
+    project: note.project,
+    module: note.module,
+    todos: note.todos,
+    updatedAt: note.updatedAt
+  }
 }
 
 function closeEditor(): void {
@@ -245,13 +280,14 @@ async function save(payload: NotePayload): Promise<void> {
     if (editing.value) {
       const updated = await updateNote(editing.value.name, payload)
       const index = notes.value.findIndex((item) => item.name === updated.name)
-      if (index >= 0) notes.value[index] = updated
+      if (index >= 0) notes.value[index] = toSummary(updated)
       show('已保存')
     } else {
       const created = await createNote(payload)
-      notes.value = [created, ...notes.value]
+      notes.value = [toSummary(created), ...notes.value]
       show('已创建笔记')
     }
+    writeCache('notes', notes.value)
     editorOpen.value = false
     editing.value = null
   } catch (err) {
@@ -268,6 +304,7 @@ async function removeConfirmed(): Promise<void> {
   try {
     await deleteNote(note.name)
     notes.value = notes.value.filter((item) => item.name !== note.name)
+    writeCache('notes', notes.value)
     show('已删除笔记')
   } catch (err) {
     handleError(err)
@@ -275,12 +312,12 @@ async function removeConfirmed(): Promise<void> {
 }
 
 onMounted(() => {
-  void load()
+  void load({ silent: Boolean(cachedNotes) })
 })
 </script>
 
 <template>
-  <div class="ws-view">
+  <div class="ws-view" :class="editorOpen ? 'ws-view-editor' : ''">
     <NoteEditor
       v-if="editorOpen"
       :note="editing"
@@ -295,6 +332,14 @@ onMounted(() => {
     />
 
     <template v-else>
+      <ToolsToggle
+        v-if="toolsCollapsed"
+        v-model="keyword"
+        :active="hasHiddenFilters"
+        placeholder="搜索笔记标题或正文"
+        search-label="搜索笔记"
+        @expand="toolsCollapsed = false"
+      />
       <template v-if="!toolsCollapsed">
       <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
@@ -428,7 +473,7 @@ onMounted(() => {
         </header>
 
         <p class="line-clamp-4 min-h-[64px] text-[13px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-          {{ excerpt(note.content, 220) || '空白笔记' }}
+          {{ note.excerpt || '空白笔记' }}
         </p>
 
         <div

@@ -7,6 +7,7 @@ const source = resolve(root, "node_modules/vditor/dist");
 const target = resolve(root, "public/vditor/dist");
 
 const files = [
+  "index.min.js",
   "js/lute/lute.min.js",
   "js/i18n/zh_CN.js",
   "js/icons/ant.js",

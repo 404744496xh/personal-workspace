@@ -3,6 +3,7 @@ import type {
   BackupData,
   Note,
   NotePayload,
+  NoteSummary,
   Project,
   ProjectPayload,
   QuickCmd,
@@ -155,8 +156,12 @@ export function deleteCommand(name: string): Promise<void> {
   })
 }
 
-export function listNotes(): Promise<Note[]> {
+export function listNotes(): Promise<NoteSummary[]> {
   return request('/notes')
+}
+
+export function getNote(name: string): Promise<Note> {
+  return request(`/notes/${encodeURIComponent(name)}`)
 }
 
 export function createNote(payload: NotePayload): Promise<Note> {

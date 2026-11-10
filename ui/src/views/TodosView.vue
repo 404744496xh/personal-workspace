@@ -21,7 +21,9 @@ import QuickAddTodo from '../components/QuickAddTodo.vue'
 import ProjectDialog from '../components/ProjectDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
+import ToolsToggle from '../components/ToolsToggle.vue'
 import { toolsCollapsed } from '../collapse'
+import { readCache, writeCache } from '../cache'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
 import Select from '../components/ui/Select.vue'
@@ -45,12 +47,15 @@ interface ProjectGroup {
 
 const PAGE_SIZE = 500
 
+const cachedTodos = readCache<{ items: Todo[]; total: number }>('todos')
+const cachedProjects = readCache<Project[]>('projects')
+
 const emit = defineEmits<{ unauthorized: []; openNotes: [target: NotesTarget] }>()
 
-const items = ref<Todo[]>([])
-const projects = ref<Project[]>([])
-const total = ref(0)
-const loading = ref(false)
+const items = ref<Todo[]>(cachedTodos?.items ?? [])
+const projects = ref<Project[]>(cachedProjects ?? [])
+const total = ref(cachedTodos?.total ?? 0)
+const loading = ref(!cachedTodos)
 const error = ref('')
 
 const keyword = ref(takeSearchTarget())
@@ -90,6 +95,7 @@ const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
 const selected = ref<Set<string>>(new Set())
+const timeOpen = ref(false)
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
 const savingRename = ref(false)
 const renameError = ref('')
@@ -100,8 +106,17 @@ const hasFilters = computed(() =>
   || completedFrom.value !== '' || completedTo.value !== '')
 const hasCreatedFilter = computed(() => createdFrom.value !== '' || createdTo.value !== '')
 const hasCompletedFilter = computed(() => completedFrom.value !== '' || completedTo.value !== '')
-const hasDateFilter = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
-const datePanelOpen = ref(hasDateFilter.value)
+const hasTimeFilters = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
+const hasNonKeywordFilters = computed(() =>
+  status.value !== 'ALL' || priority.value !== '' || activeProject.value !== null
+  || hasTimeFilters.value)
+const timeFilterTitle = computed(() => {
+  const parts = [
+    hasCreatedFilter.value ? '创建时间' : '',
+    hasCompletedFilter.value ? '完成时间' : ''
+  ].filter(Boolean)
+  return parts.length ? `时间筛选：已设置${parts.join('、')}` : '时间筛选'
+})
 const sortDirectionLabel = computed(() => {
   const desc = sortDir.value === 'desc'
   if (sortField.value === 'priority') return desc ? '高→低' : '低→高'
@@ -260,10 +275,6 @@ function toggleSortDir(): void {
   sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc'
 }
 
-function toggleDatePanel(): void {
-  datePanelOpen.value = !datePanelOpen.value
-}
-
 function buildGroups(todos: Todo[], projectList: Project[],
   expandProject: string | null): ProjectGroup[] {
   const projectMap = new Map(projectList.map((project) => [project.name, project]))
@@ -357,6 +368,11 @@ function inlineError(err: unknown): string {
   return messageOf(err)
 }
 
+function persistCache(): void {
+  writeCache('todos', { items: items.value, total: total.value })
+  writeCache('projects', projects.value)
+}
+
 async function load(options: { silent?: boolean } = {}): Promise<void> {
   const seq = ++requestSeq
   if (!options.silent) loading.value = true
@@ -378,6 +394,7 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
       && !projectList.some((project) => project.name === activeProject.value)) {
       clearSelection()
     }
+    persistCache()
   } catch (err) {
     if (seq !== requestSeq) return
     if (err instanceof ApiError && err.status === 401) {
@@ -429,6 +446,7 @@ async function save(payload: TodoPayload): Promise<void> {
       }
       showToast('已创建')
     }
+    persistCache()
     formOpen.value = false
     editing.value = null
   } catch (err) {
@@ -478,6 +496,7 @@ async function quickCreate(projectKey: string, moduleName: string,
     } else {
       await load({ silent: true })
     }
+    persistCache()
     return true
   } catch (err) {
     handleError(err)
@@ -496,6 +515,7 @@ async function ensureProjectModule(projectName: string | null,
   })
   const index = projects.value.findIndex((item) => item.name === updated.name)
   if (index >= 0) projects.value[index] = updated
+  persistCache()
 }
 
 function startCreateProject(): void {
@@ -535,6 +555,7 @@ async function createInlineProject(): Promise<void> {
     newProjectModules.value = []
     activeProject.value = created.name
     activeModule.value = null
+    persistCache()
     showToast('已创建项目')
   } catch (err) {
     projectError.value = inlineError(err)
@@ -591,6 +612,7 @@ async function saveModule(projectKey: string): Promise<void> {
     newModuleName.value = ''
     activeProject.value = updated.name
     activeModule.value = null
+    persistCache()
     showToast('已添加模块')
   } catch (err) {
     moduleError.value = inlineError(err)
@@ -617,6 +639,31 @@ function toggleSelectAll(): void {
     for (const todo of orderedVisible.value) next.delete(todo.name)
   } else {
     for (const todo of orderedVisible.value) next.add(todo.name)
+  }
+  selected.value = next
+}
+
+function todoNamesOfGroup(group: ProjectGroup | ModuleGroup): string[] {
+  if ('modules' in group) return group.modules.flatMap((module) => module.todos.map((todo) => todo.name))
+  return group.todos.map((todo) => todo.name)
+}
+
+function groupAllSelected(names: string[]): boolean {
+  return names.length > 0 && names.every((name) => selected.value.has(name))
+}
+
+function groupPartiallySelected(names: string[]): boolean {
+  const count = names.filter((name) => selected.value.has(name)).length
+  return count > 0 && count < names.length
+}
+
+function toggleSelectGroup(names: string[]): void {
+  if (!names.length) return
+  const next = new Set(selected.value)
+  if (groupAllSelected(names)) {
+    for (const name of names) next.delete(name)
+  } else {
+    for (const name of names) next.add(name)
   }
   selected.value = next
 }
@@ -773,6 +820,7 @@ async function toggle(todo: Todo): Promise<void> {
     handleError(err)
   } finally {
     busy.value = null
+    persistCache()
   }
 }
 
@@ -796,6 +844,7 @@ async function removeConfirmed(): Promise<void> {
     total.value = snapshotTotal
     handleError(err)
   }
+  persistCache()
 }
 
 function isOverdue(todo: Todo): boolean {
@@ -803,7 +852,7 @@ function isOverdue(todo: Todo): boolean {
 }
 
 onMounted(() => {
-  void load()
+  void load({ silent: Boolean(cachedTodos) })
 })
 
 onUnmounted(() => {
@@ -814,8 +863,8 @@ onUnmounted(() => {
 <template>
   <div class="ws-view">
     <template v-if="!toolsCollapsed">
-    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
-      <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
+    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1.5">
+      <div class="relative min-w-[130px] flex-1 sm:max-w-[200px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -833,18 +882,18 @@ onUnmounted(() => {
           aria-label="搜索待办"
         />
       </div>
-      <Select v-model="status" class="w-[118px]" aria-label="完成状态">
+      <Select v-model="status" class="w-[104px]" aria-label="完成状态">
         <option value="ALL">全部状态</option>
         <option value="OPEN">未完成</option>
         <option value="DONE">已完成</option>
       </Select>
-      <Select v-model="priority" class="w-[126px]" aria-label="优先级">
+      <Select v-model="priority" class="w-[118px]" aria-label="优先级">
         <option value="">全部优先级</option>
         <option value="HIGH">高</option>
         <option value="MEDIUM">中</option>
         <option value="LOW">低</option>
       </Select>
-      <Select v-model="sortField" class="w-[126px]" aria-label="排序字段">
+      <Select v-model="sortField" class="w-[112px]" aria-label="排序字段">
         <option value="created">创建时间</option>
         <option value="completed">完成时间</option>
         <option value="due">截止时间</option>
@@ -878,52 +927,56 @@ onUnmounted(() => {
         </svg>
       </Button>
       <Button
-        variant="secondary"
-        size="icon"
-        class="ws-date-toggle relative"
-        :class="datePanelOpen || hasDateFilter ? 'text-[#007AFF] dark:text-[#64B5FF]' : ''"
-        :aria-pressed="datePanelOpen"
-        :aria-label="hasDateFilter ? '时间筛选（已启用）' : '时间筛选'"
-        title="时间筛选"
-        @click="toggleDatePanel"
+        :variant="timeOpen ? 'primary' : 'secondary'"
+        size="sm"
+        class="ws-time-toggle relative"
+        :aria-expanded="timeOpen"
+        aria-controls="ws-time-filter"
+        :aria-label="timeOpen ? '收起时间筛选' : '展开时间筛选'"
+        :title="timeFilterTitle"
+        @click="timeOpen = !timeOpen"
       >
         <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M3 3.5h10L9.5 8v4.2l-3-1.5V8L3 3.5z"
-            stroke="currentColor"
-            stroke-width="1.3"
-            stroke-linejoin="round"
-          />
+          <rect x="2.5" y="3.5" width="11" height="10" rx="2" stroke="currentColor" stroke-width="1.3" />
+          <path d="M2.5 6.5h11M5.5 2.5v2M10.5 2.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
         </svg>
+        时间
         <span
-          v-if="hasDateFilter"
-          class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#007AFF] dark:bg-[#0A84FF]"
+          v-if="hasTimeFilters"
+          class="absolute right-2 top-2 h-1.5 w-1.5 rounded-full"
+          :class="timeOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
           aria-hidden="true"
         ></span>
       </Button>
-      <Button
-        :variant="selecting ? 'primary' : 'secondary'"
-        :aria-pressed="selecting"
-        @click="toggleSelecting"
-      >
-        <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.4" />
-          <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        {{ selecting ? '退出多选' : '多选' }}
-      </Button>
-      <Button variant="secondary" class="ml-auto" @click="projectOpen = true">项目管理</Button>
-      <Button variant="primary" @click="openCreate">
-        <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-        </svg>
-        新建待办
-      </Button>
+      <div class="ml-auto flex flex-wrap items-center gap-1.5">
+        <span class="hidden h-5 w-px bg-black/[0.07] dark:bg-white/10 sm:block" aria-hidden="true"></span>
+        <Button
+          :variant="selecting ? 'primary' : 'secondary'"
+          size="icon"
+          :aria-label="selecting ? '退出多选' : '多选'"
+          :title="selecting ? '退出多选' : '多选'"
+          :aria-pressed="selecting"
+          @click="toggleSelecting"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.4" />
+            <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </Button>
+        <Button variant="secondary" @click="projectOpen = true">项目管理</Button>
+        <Button variant="primary" @click="openCreate">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          新建待办
+        </Button>
+      </div>
     </div>
 
     <div
-      v-if="datePanelOpen"
-      class="ws-date-filter mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
+      v-if="timeOpen"
+      id="ws-time-filter"
+      class="ws-date-filter mb-4 inline-flex max-w-full flex-wrap items-center gap-x-5 gap-y-2 rounded-[18px] border border-black/[0.06] bg-white/[0.55] px-4 py-3 text-[12px] text-[#6e6e73] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#98989d]"
     >
       <div class="flex flex-wrap items-center gap-2">
         <span class="font-medium">创建时间</span>
@@ -969,14 +1022,18 @@ onUnmounted(() => {
           @click="completedFrom = ''; completedTo = ''"
         >清除</Button>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        class="ml-auto"
-        @click="datePanelOpen = false"
-      >收起</Button>
     </div>
     </template>
+
+    <ToolsToggle
+      v-if="toolsCollapsed"
+      v-model="keyword"
+      :active="hasNonKeywordFilters"
+      placeholder="搜索标题或详情"
+      search-label="搜索待办"
+      class="ws-todos-tools-collapsed"
+      @expand="toolsCollapsed = false"
+    />
 
     <div
       v-if="selecting"
@@ -1071,6 +1128,19 @@ onUnmounted(() => {
           : 'border-white/20 bg-white/[0.72] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70'"
       >
         <header class="ws-group-header group/project flex items-center gap-1 px-2 pb-1 pt-2">
+          <label
+            v-if="selecting && group.count"
+            class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
+          >
+            <input
+              type="checkbox"
+              class="ws-select h-5 w-5 accent-[#007AFF]"
+              :checked="groupAllSelected(todoNamesOfGroup(group))"
+              :indeterminate.prop="groupPartiallySelected(todoNamesOfGroup(group))"
+              :aria-label="`全选 ${group.title} 的待办`"
+              @change="toggleSelectGroup(todoNamesOfGroup(group))"
+            />
+          </label>
           <button
             type="button"
             class="ws-group-head flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full px-3 text-left transition-colors duration-200 ease-[var(--ws-ease)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"
@@ -1214,6 +1284,19 @@ onUnmounted(() => {
                 >{{ renameError }}</p>
               </form>
               <template v-else>
+                <label
+                  v-if="selecting && moduleGroup.todos.length"
+                  class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
+                >
+                  <input
+                    type="checkbox"
+                    class="ws-select h-5 w-5 accent-[#007AFF]"
+                    :checked="groupAllSelected(todoNamesOfGroup(moduleGroup))"
+                    :indeterminate.prop="groupPartiallySelected(todoNamesOfGroup(moduleGroup))"
+                    :aria-label="`全选 ${moduleGroup.label} 的待办`"
+                    @change="toggleSelectGroup(todoNamesOfGroup(moduleGroup))"
+                  />
+                </label>
                 <button
                   type="button"
                   class="ws-module-title flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-3 text-left text-[12px] font-medium transition-colors duration-200 ease-[var(--ws-ease)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"

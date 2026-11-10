@@ -120,7 +120,35 @@
 }
 
 
+/* 笔记编辑器占满主区高度，避免卡片下方留出大块空白 */
+#workspace-app .ws-view-editor {
+  display: flex;
+  flex-direction: column;
+}
+
+#workspace-app .ws-view-editor .ws-note-editor {
+  flex: 1 1 auto;
+  height: auto;
+}
+
+@media (min-width: 1024px) {
+  #workspace-app .ws-view-editor {
+    height: calc(100dvh - 3rem);
+  }
+}
+
+@media (max-width: 1023px) {
+  #workspace-app .ws-view-editor .ws-note-editor {
+    height: calc(100dvh - 260px);
+  }
+}
+
 /* 笔记页内编辑器：沿用页面卡片，去掉 Vditor 自带边框与工具栏 */
+#workspace-app {
+  --ws-outline-width: 244px;
+  --ws-outline-gap: 12px;
+}
+
 #workspace-app .ws-note-editor .vditor {
   border: 0;
   border-radius: 0;
@@ -137,6 +165,8 @@
 
 #workspace-app .ws-note-editor .vditor-ir .vditor-reset {
   padding: 4px 24px 32px;
+  /* 代码块/表格落在正文末尾时，底部始终留出可点击的空白，方便继续往下写 */
+  padding-bottom: clamp(120px, 28vh, 220px) !important;
 }
 
 #workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor {
@@ -149,13 +179,73 @@
   background: transparent;
 }
 
+/* 大纲：展开时是一张和写作台一致的白底悬浮卡片（默认收起成右侧轨道） */
 #workspace-app .ws-note-editor .vditor-outline {
-  background: transparent;
-  border-left-color: rgba(0, 0, 0, 0.06);
+  width: var(--ws-outline-width);
+  max-height: calc(100% - 22px);
+  margin: 10px var(--ws-outline-gap) 12px 0;
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px) saturate(170%);
+  scrollbar-width: thin;
+}
+
+#workspace-app .ws-note-editor .vditor-outline__title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 14px 10px;
+  font-size: 12.5px;
+  color: rgba(29, 29, 31, 0.45);
+  background: inherit;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+#workspace-app .ws-note-editor .vditor-outline__content {
+  padding: 6px 0 8px;
+}
+
+#workspace-app .ws-note-editor .vditor-outline ul {
+  padding-left: 10px;
+}
+
+#workspace-app .ws-note-editor .vditor-outline__content > ul {
+  padding-left: 0;
+}
+
+#workspace-app .ws-note-editor .vditor-outline li > span {
+  margin: 1px 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+#workspace-app .ws-note-editor .vditor-outline li > span > svg {
+  display: none;
+}
+
+#workspace-app .ws-note-editor .vditor-outline li > span:hover {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.05);
 }
 
 #workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor-outline {
-  border-left-color: rgba(255, 255, 255, 0.08);
+  background: rgba(28, 28, 30, 0.92);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor-outline__title {
+  color: rgba(245, 245, 247, 0.45);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor-outline li > span:hover {
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Vditor 给行内代码设了 pre-wrap + break-word，表格里会被压成一两字符宽，改成不换行让表格横向滚动 */
@@ -177,32 +267,28 @@
 /* 大纲折叠：展开时左缘一个细箭头，收起后留一条贴右缘的轨道 */
 #workspace-app .ws-outline-arrow {
   position: absolute;
-  right: 242px;
-  top: 50%;
-  z-index: 6;
+  right: calc(var(--ws-outline-gap) + 6px);
+  top: 15px;
+  z-index: 7;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 56px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1;
-  color: rgba(29, 29, 31, 0.32);
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
-  opacity: 0.65;
+  color: rgba(29, 29, 31, 0.42);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
   cursor: pointer;
-  transform: translateY(-50%);
   transition: opacity 0.15s, color 0.15s, background-color 0.15s;
 }
 
 #workspace-app .ws-outline-arrow:hover {
-  opacity: 1;
   color: #1d1d1f;
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.06);
 }
 
 #workspace-app .ws-outline-rail {
@@ -327,7 +413,11 @@
   background: rgba(0, 0, 0, 0.05);
 }
 
-#workspace-app[data-ws-theme="dark"] .ws-outline-arrow,
+#workspace-app[data-ws-theme="dark"] .ws-outline-arrow {
+  color: rgba(245, 245, 247, 0.5);
+  background: transparent;
+}
+
 #workspace-app[data-ws-theme="dark"] .ws-outline-rail {
   color: rgba(245, 245, 247, 0.35);
   background: rgba(44, 44, 46, 0.92);
@@ -337,7 +427,7 @@
 #workspace-app[data-ws-theme="dark"] .ws-outline-arrow:hover,
 #workspace-app[data-ws-theme="dark"] .ws-outline-rail__expand:hover {
   color: #f5f5f7;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 #workspace-app[data-ws-theme="dark"] .ws-outline-dash {
@@ -586,10 +676,13 @@
   color: rgba(245, 245, 247, 0.4);
 }
 
-/* 侧栏内的全局搜索：下拉面板从左侧展开，避免越过屏幕左缘 */
+/* 侧栏内的全局搜索：下拉面板从左侧向上展开，避免越过屏幕左缘或底边 */
 #workspace-app .ws-sidebar .ws-search-panel {
   left: 0;
   right: auto;
+  top: auto;
+  bottom: calc(100% + 8px);
+  margin-top: 0;
   width: 300px;
   max-width: 78vw;
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Vditor from 'vditor'
+import type Vditor from 'vditor'
 import 'vditor/dist/index.css'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type { Note, NotePayload, Project, Todo } from '../types'
@@ -51,7 +51,7 @@ const uploading = ref(0)
 const ready = ref(false)
 
 // 大纲折叠偏好跨次打开保留；默认收起成右侧细轨，鼠标悬停/点击展开
-const OUTLINE_KEY = 'personal-workspace:outline-hidden'
+const OUTLINE_KEY = 'personal-workspace:outline-hidden-v2'
 const outlineHidden = ref(localStorage.getItem(OUTLINE_KEY) !== '0')
 const outlineAvailable = ref(false)
 const panelOpen = ref(false)
@@ -336,11 +336,46 @@ function onWindowKeydown(event: KeyboardEvent): void {
 
 let themeObserver: MutationObserver | undefined
 
-onMounted(() => {
+type VditorCtor = typeof import('vditor')['default']
+let vditorScript: Promise<VditorCtor> | null = null
+
+// Vditor 用 UMD 脚本按需加载，避免把编辑器打进首屏 bundle；版本随插件资源路径更新
+function loadVditor(): Promise<VditorCtor> {
+  const global = window as unknown as { Vditor?: VditorCtor }
+  if (global.Vditor) return Promise.resolve(global.Vditor)
+  if (vditorScript) return vditorScript
+  vditorScript = new Promise<VditorCtor>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = `${CDN}/dist/index.min.js`
+    script.onload = () => {
+      if (global.Vditor) resolve(global.Vditor)
+      else {
+        vditorScript = null
+        reject(new Error('Vditor 加载失败'))
+      }
+    }
+    script.onerror = () => {
+      vditorScript = null
+      reject(new Error('Vditor 加载失败'))
+    }
+    document.head.appendChild(script)
+  })
+  return vditorScript
+}
+
+onMounted(async () => {
   if (!editorEl.value) return
   applyMermaidTheme()
   const dark = isDark()
-  vditor.value = new Vditor(editorEl.value, {
+  let VditorCtor: VditorCtor
+  try {
+    VditorCtor = await loadVditor()
+  } catch (error) {
+    localError.value = messageOf(error)
+    return
+  }
+  if (!editorEl.value) return
+  vditor.value = new VditorCtor(editorEl.value, {
     cdn: CDN,
     mode: 'ir',
     value: content.value,
@@ -409,7 +444,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    class="ws-note-editor flex h-[calc(100vh-260px)] min-h-[520px] flex-col overflow-hidden rounded-[18px] border border-white/20 bg-white/[0.82] shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/80"
+    class="ws-note-editor flex min-h-[520px] flex-col overflow-hidden rounded-[18px] border border-white/20 bg-white/[0.82] shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/80"
   >
     <header
       class="ws-note-editor-bar flex flex-wrap items-center gap-2 border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.08]"

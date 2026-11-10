@@ -6,6 +6,7 @@ import asia.xiahan.workspace.dto.BackupPayload;
 import asia.xiahan.workspace.dto.ImageUploadResponse;
 import asia.xiahan.workspace.dto.ModuleRenameRequest;
 import asia.xiahan.workspace.dto.NoteUpsertRequest;
+import asia.xiahan.workspace.dto.NoteSummary;
 import asia.xiahan.workspace.dto.NoteView;
 import asia.xiahan.workspace.dto.ProjectUpsertRequest;
 import asia.xiahan.workspace.dto.ProjectView;
@@ -253,7 +254,7 @@ public class WorkspaceEndpoint implements CustomEndpoint {
     private Mono<ServerResponse> listNotes(ServerRequest request) {
         return handle(currentUser.requireUsername().flatMap(username ->
             dataAccess.listNotes(username)
-                .map(NoteView::of)
+                .map(NoteSummary::of)
                 .collectList()
                 .flatMap(WorkspaceEndpoint::okJson)));
     }

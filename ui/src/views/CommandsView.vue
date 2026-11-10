@@ -17,14 +17,18 @@ import Select from '../components/ui/Select.vue'
 import CommandForm from '../components/CommandForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
+import ToolsToggle from '../components/ToolsToggle.vue'
 import { toolsCollapsed } from '../collapse'
+import { readCache, writeCache } from '../cache'
+
+const cachedCommands = readCache<QuickCmd[]>('commands')
 
 const emit = defineEmits<{ unauthorized: [] }>()
 
-const commands = ref<QuickCmd[]>([])
+const commands = ref<QuickCmd[]>(cachedCommands ?? [])
 const keyword = ref(takeSearchTarget())
 const categoryFilter = ref('')
-const loading = ref(true)
+const loading = ref(!cachedCommands)
 const error = ref('')
 
 const formOpen = ref(false)
@@ -59,11 +63,12 @@ function handleError(err: unknown): void {
   show(messageOf(err))
 }
 
-async function load(): Promise<void> {
-  loading.value = true
+async function load(options: { silent?: boolean } = {}): Promise<void> {
+  if (!options.silent) loading.value = true
   error.value = ''
   try {
     commands.value = await listCommands()
+    writeCache('commands', commands.value)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       emit('unauthorized')
@@ -104,6 +109,7 @@ async function save(payload: QuickCmdPayload): Promise<void> {
       commands.value = [created, ...commands.value]
       show('已创建命令')
     }
+    writeCache('commands', commands.value)
     formOpen.value = false
     editing.value = null
   } catch (err) {
@@ -137,6 +143,7 @@ async function removeConfirmed(): Promise<void> {
   try {
     await deleteCommand(command.name)
     commands.value = commands.value.filter((item) => item.name !== command.name)
+    writeCache('commands', commands.value)
     show('已删除命令')
   } catch (err) {
     handleError(err)
@@ -144,12 +151,20 @@ async function removeConfirmed(): Promise<void> {
 }
 
 onMounted(() => {
-  void load()
+  void load({ silent: Boolean(cachedCommands) })
 })
 </script>
 
 <template>
   <div class="ws-view">
+    <ToolsToggle
+      v-if="toolsCollapsed"
+      v-model="keyword"
+      :active="categoryFilter !== ''"
+      placeholder="搜索命令、备注或分类"
+      search-label="搜索命令"
+      @expand="toolsCollapsed = false"
+    />
     <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
