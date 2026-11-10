@@ -153,22 +153,37 @@ const doneProjects = computed(() =>
 const topProjects = computed(() =>
   [...activeProjects.value].sort((a, b) => b.progress - a.progress).slice(0, 3))
 
-const trendDays = computed(() => {
-  const list: { key: string; label: string; created: number; completed: number }[] = []
-  for (let offset = 6; offset >= 0; offset -= 1) {
-    const date = shiftDays(new Date(), -offset)
-    const key = keyOf(date)
-    const counts = dayCounts.value.get(key) ?? { created: 0, completed: 0 }
-    list.push({ key, label: `${date.getMonth() + 1}/${date.getDate()}`, ...counts })
-  }
-  return list
-})
+const trendPoints = computed(() =>
+  view.value === 'month'
+    ? cells.value.filter((cell): cell is DayCell => cell !== null)
+    : weekDays.value)
 const trendMax = computed(() => Math.max(1,
-  ...trendDays.value.flatMap((day) => [day.created, day.completed])))
+  ...trendPoints.value.flatMap((day) => [day.created, day.completed])))
 
-function barHeight(value: number): string {
-  if (!value) return '2px'
-  return `${Math.max(4, Math.round((value / trendMax.value) * 36))}px`
+function pointX(index: number): number {
+  const last = trendPoints.value.length - 1
+  return last <= 0 ? 50 : 4 + (index / last) * 92
+}
+
+function pointY(value: number): number {
+  return 92 - (value / trendMax.value) * 84
+}
+
+function linePoints(field: 'created' | 'completed'): string {
+  return trendPoints.value
+    .map((day, index) => `${pointX(index).toFixed(2)},${pointY(day[field]).toFixed(2)}`)
+    .join(' ')
+}
+
+function trendLabel(day: DayCell, index: number): string {
+  if (view.value === 'week') {
+    const date = new Date(`${day.key}T00:00:00`)
+    return `${date.getMonth() + 1}/${date.getDate()}`
+  }
+  if (index === 0 || index === trendPoints.value.length - 1 || day.day % 5 === 0) {
+    return String(day.day)
+  }
+  return ''
 }
 
 function heatClass(completed: number): string {
@@ -186,9 +201,12 @@ function openStaleTodos(): void {
 
 <template>
   <div class="ws-overview mb-4 flex flex-col gap-3">
-    <div class="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+    <div
+      class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]"
+      :class="view === 'week' ? 'items-stretch' : 'items-start'"
+    >
       <div
-        class="ws-calendar rounded-[18px] border border-white/20 bg-white/[0.72] p-4 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
+        class="ws-calendar flex flex-col rounded-[18px] border border-white/20 bg-white/[0.72] p-4 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
       >
         <header class="mb-2 flex flex-wrap items-center gap-1">
           <h2 class="text-[13px] font-semibold tracking-[-0.01em]">
@@ -260,11 +278,11 @@ function openStaleTodos(): void {
           </template>
         </div>
 
-        <div v-else class="ws-week mt-1 grid grid-cols-7 gap-1">
+        <div v-else class="ws-week mt-1 grid flex-1 grid-rows-1 grid-cols-7 gap-1">
           <div
             v-for="cell in weekDays"
             :key="cell.key"
-            class="ws-calendar-day flex h-16 flex-col items-center justify-center rounded-lg px-1 text-center leading-none tabular-nums"
+            class="ws-calendar-day flex min-h-16 flex-col items-center justify-center rounded-lg px-1 text-center leading-none tabular-nums"
             :class="[
               heatClass(cell.completed),
               cell.isToday ? 'ring-1 ring-[#007AFF]/45 dark:ring-[#64B5FF]/45' : ''
@@ -275,13 +293,79 @@ function openStaleTodos(): void {
             :title="`${cell.key} · 新增 ${cell.created} · 完成 ${cell.completed}`"
           >
             <span
-              class="text-[14px] font-semibold"
+              class="text-[20px] font-semibold"
               :class="cell.isToday ? 'text-[#007AFF] dark:text-[#64B5FF]' : 'text-[#1d1d1f]/80 dark:text-[#f5f5f7]/70'"
             >{{ cell.day }}</span>
-            <span class="mt-1 flex flex-col items-center gap-0.5 text-[10px]">
+            <span class="mt-2 flex flex-col items-center gap-1 text-[12px]">
               <span v-if="cell.created" class="text-[#007AFF] dark:text-[#64B5FF]">+{{ cell.created }}</span>
               <span v-if="cell.completed" class="text-[#34C759] dark:text-[#30D158]">✓{{ cell.completed }}</span>
             </span>
+          </div>
+        </div>
+
+        <div class="ws-trend mt-3 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]">
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-[#6e6e73] dark:text-[#98989d]">每日趋势</span>
+            <div class="ml-auto flex items-center gap-3 text-[10px] text-[#6e6e73] dark:text-[#98989d]">
+              <span class="flex items-center gap-1">
+                <i class="h-1.5 w-1.5 rounded-full bg-[#007AFF] dark:bg-[#64B5FF]" aria-hidden="true"></i>新增
+              </span>
+              <span class="flex items-center gap-1">
+                <i class="h-1.5 w-1.5 rounded-full bg-[#34C759] dark:bg-[#30D158]" aria-hidden="true"></i>完成
+              </span>
+            </div>
+          </div>
+          <div class="ws-trend-chart relative mt-2 h-24">
+            <svg
+              class="absolute inset-0 h-full w-full"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <polyline
+                :points="linePoints('created')"
+                fill="none"
+                stroke="#007AFF"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                vector-effect="non-scaling-stroke"
+              />
+              <polyline
+                :points="linePoints('completed')"
+                fill="none"
+                stroke="#34C759"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                vector-effect="non-scaling-stroke"
+              />
+            </svg>
+            <span
+              v-for="(day, index) in trendPoints"
+              :key="day.key"
+              class="ws-trend-day absolute inset-y-0"
+              :style="{ left: `${pointX(index)}%` }"
+              :data-date="day.key"
+              :data-created="day.created"
+              :data-completed="day.completed"
+            >
+              <span
+                v-if="day.created"
+                class="absolute left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#007AFF] ring-2 ring-white dark:bg-[#64B5FF] dark:ring-[#1c1c1e]"
+                :style="{ top: `${pointY(day.created)}%` }"
+                :title="`${day.key} · 新增 ${day.created}`"
+              ></span>
+              <span
+                v-if="day.completed"
+                class="absolute left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#34C759] ring-2 ring-white dark:bg-[#30D158] dark:ring-[#1c1c1e]"
+                :style="{ top: `${pointY(day.completed)}%` }"
+                :title="`${day.key} · 完成 ${day.completed}`"
+              ></span>
+            </span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-[9px] tabular-nums text-[#8e8e93] dark:text-[#98989d]">
+            <span v-for="(day, index) in trendPoints" :key="day.key" class="flex-1 text-center">{{ trendLabel(day, index) }}</span>
           </div>
         </div>
 
@@ -355,45 +439,5 @@ function openStaleTodos(): void {
       </div>
     </div>
 
-    <div
-      class="ws-trend rounded-[18px] border border-white/20 bg-white/[0.72] p-4 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
-    >
-      <header class="flex items-center gap-2">
-        <h2 class="text-[13px] font-semibold tracking-[-0.01em]">近 7 日</h2>
-        <div class="ml-auto flex items-center gap-3 text-[11px] text-[#6e6e73] dark:text-[#98989d]">
-          <span class="flex items-center gap-1">
-            <i class="h-1.5 w-1.5 rounded-full bg-[#007AFF] dark:bg-[#64B5FF]" aria-hidden="true"></i>新增
-          </span>
-          <span class="flex items-center gap-1">
-            <i class="h-1.5 w-1.5 rounded-full bg-[#34C759] dark:bg-[#30D158]" aria-hidden="true"></i>完成
-          </span>
-        </div>
-      </header>
-      <div class="mt-3 flex items-end gap-2">
-        <div
-          v-for="day in trendDays"
-          :key="day.key"
-          class="ws-trend-day flex flex-1 flex-col items-center gap-1"
-          :data-date="day.key"
-          :data-created="day.created"
-          :data-completed="day.completed"
-          :title="`${day.key} · 新增 ${day.created} · 完成 ${day.completed}`"
-        >
-          <div class="flex h-10 items-end gap-1">
-            <span
-              class="w-1.5 rounded-full bg-[#007AFF]/70 dark:bg-[#64B5FF]/70"
-              :class="day.created ? '' : 'opacity-30'"
-              :style="{ height: barHeight(day.created) }"
-            ></span>
-            <span
-              class="w-1.5 rounded-full bg-[#34C759]/80 dark:bg-[#30D158]/80"
-              :class="day.completed ? '' : 'opacity-30'"
-              :style="{ height: barHeight(day.completed) }"
-            ></span>
-          </div>
-          <span class="text-[9px] tabular-nums text-[#8e8e93] dark:text-[#98989d]">{{ day.label }}</span>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
