@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import HomeView from './views/HomeView.vue'
 import TodosView from './views/TodosView.vue'
 import ProjectsView from './views/ProjectsView.vue'
 import CommandsView from './views/CommandsView.vue'
@@ -12,7 +13,7 @@ import { scheme, toggleScheme } from './theme'
 import { toolsCollapsed } from './collapse'
 import type { SearchType } from './types'
 
-type TabKey = 'todos' | 'projects' | 'commands' | 'notes' | 'backup'
+type TabKey = 'home' | 'todos' | 'projects' | 'commands' | 'notes' | 'backup'
 type AuthState = 'ok' | 'unauthorized'
 
 interface NavItem {
@@ -29,7 +30,7 @@ const navItems: NavItem[] = [
   { key: 'backup', label: '备份', subtitle: '导出与导入个人数据' }
 ]
 
-const tab = ref<TabKey>('todos')
+const tab = ref<TabKey>('home')
 const viewKey = ref(0)
 const SIDEBAR_KEY = 'workspace:sidebar-hidden'
 const sidebarHidden = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
@@ -128,7 +129,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onShortcutKeydown, true)
 })
 
-const current = computed(() => navItems.find((item) => item.key === tab.value) ?? navItems[0])
+const current = computed(() => {
+  if (tab.value === 'home') return { label: '概览', subtitle: '日历与待办一览' }
+  return navItems.find((item) => item.key === tab.value) ?? navItems[0]
+})
 const themeAction = computed(() => scheme.value === 'dark' ? '切换到浅色模式' : '切换到深色模式')
 
 const SEARCH_TAB: Record<SearchType, TabKey> = {
@@ -182,13 +186,21 @@ function toggleSidebar(): void {
         :class="sidebarHidden ? 'flex lg:hidden' : 'flex'"
       >
         <div class="ws-brand flex items-center gap-2.5 px-2 py-1.5">
-          <span class="h-2.5 w-2.5 rounded-full bg-[#007AFF] dark:bg-[#0A84FF]" aria-hidden="true"></span>
-          <div class="flex flex-col leading-tight">
-            <strong class="text-[14px] font-semibold tracking-[-0.01em]">个人工作台</strong>
-            <small
-              class="text-[11px] font-medium uppercase tracking-[0.08em] text-[#6e6e73] dark:text-[#98989d]"
-            >Workspace</small>
-          </div>
+          <button
+            type="button"
+            class="ws-brand-home -ml-1 flex min-w-0 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:hover:bg-white/[0.08]"
+            aria-label="回到首屏"
+            title="回到首屏"
+            @click="tab = 'home'"
+          >
+            <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-[#007AFF] dark:bg-[#0A84FF]" aria-hidden="true"></span>
+            <div class="flex flex-col leading-tight">
+              <strong class="text-[14px] font-semibold tracking-[-0.01em]">个人工作台</strong>
+              <small
+                class="text-[11px] font-medium uppercase tracking-[0.08em] text-[#6e6e73] dark:text-[#98989d]"
+              >Workspace</small>
+            </div>
+          </button>
           <button
             type="button"
             class="ws-sidebar-toggle ml-auto hidden h-8 w-8 items-center justify-center rounded-full text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 lg:inline-flex dark:text-[#98989d] dark:hover:bg-white/[0.08] dark:hover:text-[#f5f5f7]"
@@ -291,6 +303,10 @@ function toggleSidebar(): void {
           >去登录</a>
         </section>
 
+        <HomeView
+          v-else-if="tab === 'home'"
+          @unauthorized="onUnauthorized"
+        />
         <TodosView
           v-else-if="tab === 'todos'"
           :key="viewKey"
