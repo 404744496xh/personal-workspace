@@ -35,16 +35,18 @@ const props = withDefaults(defineProps<{
   variant?: ButtonVariant['variant']
   size?: ButtonVariant['size']
   class?: string
+  type?: 'button' | 'submit' | 'reset'
 }>(), {
   variant: 'secondary',
-  size: 'default'
+  size: 'default',
+  type: 'button'
 })
 
 const classes = computed(() => cn(variants({ variant: props.variant, size: props.size }), props.class))
 </script>
 
 <template>
-  <button :class="classes">
+  <button :type="type" :class="classes">
     <slot />
   </button>
 </template>

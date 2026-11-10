@@ -13,7 +13,11 @@
     />
   </th:block>
   <th:block th:fragment="content">
-    <div id="workspace-app" class="ws-root" th:attr="data-username=${username}">
+    <div
+      id="workspace-app"
+      class="ws-root"
+      th:attr="data-username=${username},data-collapse-shortcut=${collapseShortcut}"
+    >
       <div class="ws-boot">正在加载工作台…</div>
     </div>
     <noscript>

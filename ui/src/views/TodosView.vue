@@ -14,9 +14,10 @@ import {
 } from '../api'
 import type { Priority, Project, Todo, TodoPayload } from '../types'
 import { formatDate, formatDateTime, messageOf, priorityClass, priorityLabel, todayString } from '../utils'
-import { takeSearchTarget } from '../searchTarget'
+import { takeSearchTarget, takeTodosTarget } from '../searchTarget'
 import type { NotesTarget } from '../searchTarget'
 import TodoForm from '../components/TodoForm.vue'
+import QuickAddTodo from '../components/QuickAddTodo.vue'
 import ProjectDialog from '../components/ProjectDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
@@ -25,7 +26,8 @@ import Input from '../components/ui/Input.vue'
 import Select from '../components/ui/Select.vue'
 
 type StatusFilter = 'ALL' | 'OPEN' | 'DONE'
-type SortMode = 'created' | 'completedDesc' | 'completedAsc'
+type SortField = 'created' | 'completed' | 'due' | 'priority'
+type SortDirection = 'desc' | 'asc'
 
 interface ModuleGroup {
   key: string
@@ -51,10 +53,11 @@ const loading = ref(false)
 const error = ref('')
 
 const keyword = ref(takeSearchTarget())
+const todosTarget = takeTodosTarget()
 const status = ref<StatusFilter>('ALL')
 const priority = ref<Priority | ''>('')
-const activeProject = ref<string | null>(null)
-const activeModule = ref<string | null>(null)
+const activeProject = ref<string | null>(todosTarget?.project ?? null)
+const activeModule = ref<string | null>(todosTarget?.module ?? null)
 
 const formOpen = ref(false)
 const projectOpen = ref(false)
@@ -79,7 +82,10 @@ const newModuleName = ref('')
 const savingModule = ref(false)
 const moduleError = ref('')
 
-const sortBy = ref<SortMode>('created')
+const sortField = ref<SortField>('created')
+const sortDir = ref<SortDirection>('desc')
+const createdFrom = ref('')
+const createdTo = ref('')
 const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
@@ -90,12 +96,23 @@ const renameError = ref('')
 
 const hasFilters = computed(() =>
   keyword.value.trim() !== '' || status.value !== 'ALL' || priority.value !== ''
-  || activeProject.value !== null || completedFrom.value !== '' || completedTo.value !== '')
+  || activeProject.value !== null || createdFrom.value !== '' || createdTo.value !== ''
+  || completedFrom.value !== '' || completedTo.value !== '')
+const hasCreatedFilter = computed(() => createdFrom.value !== '' || createdTo.value !== '')
 const hasCompletedFilter = computed(() => completedFrom.value !== '' || completedTo.value !== '')
+const hasDateFilter = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
+const datePanelOpen = ref(hasDateFilter.value)
+const sortDirectionLabel = computed(() => {
+  const desc = sortDir.value === 'desc'
+  if (sortField.value === 'priority') return desc ? '高→低' : '低→高'
+  if (sortField.value === 'due') return desc ? '截止晚→早' : '截止早→晚'
+  return desc ? '新→旧' : '旧→新'
+})
 const visibleItems = computed(() => {
   const filtered = items.value.filter((todo) => {
     if (activeProject.value !== null && projectKeyOf(todo) !== activeProject.value) return false
     if (activeModule.value !== null && (todo.module ?? '') !== activeModule.value) return false
+    if (!matchesCreatedRange(todo)) return false
     if (!matchesCompletedRange(todo)) return false
     return true
   })
@@ -116,7 +133,8 @@ const activeProjectTitle = computed(() => {
   return projects.value.find((project) => project.name === activeProject.value)?.title ?? '未分类'
 })
 const displayedTotal = computed(() =>
-  activeProject.value === null ? total.value : visibleItems.value.length)
+  activeProject.value === null && !hasCreatedFilter.value && !hasCompletedFilter.value
+    ? total.value : visibleItems.value.length)
 const truncated = computed(() =>
   activeProject.value === null && total.value > items.value.length)
 
@@ -154,8 +172,14 @@ function clearAllFilters(): void {
   keyword.value = ''
   status.value = 'ALL'
   priority.value = ''
+  createdFrom.value = ''
+  createdTo.value = ''
   completedFrom.value = ''
   completedTo.value = ''
+}
+
+function createNoteHere(target: NotesTarget): void {
+  emit('openNotes', { ...target, create: true })
 }
 
 async function openRelatedNotes(key: string, target: NotesTarget): Promise<void> {
@@ -184,6 +208,15 @@ async function openRelatedNotes(key: string, target: NotesTarget): Promise<void>
   }
 }
 
+function matchesCreatedRange(todo: Todo): boolean {
+  if (!createdFrom.value && !createdTo.value) return true
+  if (!todo.createdAt) return false
+  const day = formatDate(todo.createdAt)
+  if (createdFrom.value && day < createdFrom.value) return false
+  if (createdTo.value && day > createdTo.value) return false
+  return true
+}
+
 function matchesCompletedRange(todo: Todo): boolean {
   if (!completedFrom.value && !completedTo.value) return true
   if (!todo.completedAt) return false
@@ -193,17 +226,40 @@ function matchesCompletedRange(todo: Todo): boolean {
   return true
 }
 
+const PRIORITY_RANK: Record<Priority, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 }
+
 function sortTodos(list: Todo[]): Todo[] {
-  if (sortBy.value === 'created') return list
-  const direction = sortBy.value === 'completedDesc' ? -1 : 1
+  const direction = sortDir.value === 'desc' ? -1 : 1
+  const keyOf = (todo: Todo): string | null => {
+    if (sortField.value === 'created') return todo.createdAt
+    if (sortField.value === 'completed') return todo.completedAt
+    return todo.dueDate
+  }
   return [...list].sort((a, b) => {
-    const left = a.completedAt
-    const right = b.completedAt
+    if (sortField.value === 'priority') {
+      return (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]) * direction
+    }
+    const left = keyOf(a)
+    const right = keyOf(b)
+    // 无完成时间 / 无截止时间的待办始终排在末尾
     if (!left && !right) return 0
     if (!left) return 1
     if (!right) return -1
     return left < right ? -direction : left > right ? direction : 0
   })
+}
+
+function toggleSortDir(): void {
+  sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc'
+}
+
+function toggleDatePanel(): void {
+  datePanelOpen.value = !datePanelOpen.value
+}
+
+function onCollapseAll(event: Event): void {
+  const collapsed = (event as CustomEvent<{ collapsed?: boolean }>).detail?.collapsed
+  datePanelOpen.value = !collapsed
 }
 
 function buildGroups(todos: Todo[], projectList: Project[],
@@ -379,7 +435,7 @@ async function save(payload: TodoPayload): Promise<void> {
       showToast('已保存')
     } else {
       const created = await createTodo(payload)
-      if (!hasServerFilters() && matchesSelection(created)) {
+      if (!hasServerFilters() && matchesClientFilters(created)) {
         items.value = [created, ...items.value]
         total.value += 1
       } else {
@@ -404,6 +460,43 @@ function matchesSelection(todo: Todo): boolean {
   if (activeProject.value !== null && projectKeyOf(todo) !== activeProject.value) return false
   if (activeModule.value !== null && (todo.module ?? '') !== activeModule.value) return false
   return true
+}
+
+function matchesClientFilters(todo: Todo): boolean {
+  return matchesSelection(todo) && matchesCreatedRange(todo) && matchesCompletedRange(todo)
+}
+
+async function quickCreate(projectKey: string, moduleName: string,
+  title: string): Promise<boolean> {
+  const trimmed = title.trim()
+  if (!trimmed) return false
+  if (trimmed.length > 200) {
+    showToast('名称不能超过 200 个字符')
+    return false
+  }
+  const payload: TodoPayload = {
+    title: trimmed,
+    detail: '',
+    priority: 'MEDIUM',
+    project: projectKey || null,
+    module: projectKey ? (moduleName || null) : null,
+    dueDate: null,
+    completed: false
+  }
+  try {
+    await ensureProjectModule(payload.project, payload.module)
+    const created = await createTodo(payload)
+    if (!hasServerFilters() && matchesClientFilters(created)) {
+      items.value = [created, ...items.value]
+      total.value += 1
+    } else {
+      await load({ silent: true })
+    }
+    return true
+  } catch (err) {
+    handleError(err)
+    return false
+  }
 }
 
 async function ensureProjectModule(projectName: string | null,
@@ -724,10 +817,12 @@ function isOverdue(todo: Todo): boolean {
 }
 
 onMounted(() => {
+  window.addEventListener('workspace:collapse-all', onCollapseAll)
   void load()
 })
 
 onUnmounted(() => {
+  window.removeEventListener('workspace:collapse-all', onCollapseAll)
   if (toastTimer) window.clearTimeout(toastTimer)
   if (searchTimer) window.clearTimeout(searchTimer)
 })
@@ -765,11 +860,63 @@ onUnmounted(() => {
         <option value="MEDIUM">中</option>
         <option value="LOW">低</option>
       </Select>
-      <Select v-model="sortBy" class="w-[150px]" aria-label="排序方式">
+      <Select v-model="sortField" class="w-[126px]" aria-label="排序字段">
         <option value="created">创建时间</option>
-        <option value="completedDesc">完成时间 新→旧</option>
-        <option value="completedAsc">完成时间 旧→新</option>
+        <option value="completed">完成时间</option>
+        <option value="due">截止时间</option>
+        <option value="priority">优先级</option>
       </Select>
+      <Button
+        variant="secondary"
+        size="icon"
+        class="ws-sort-dir"
+        :aria-label="`排序方向：${sortDirectionLabel}`"
+        :title="`排序方向：${sortDirectionLabel}（点击切换）`"
+        @click="toggleSortDir"
+      >
+        <svg v-if="sortDir === 'desc'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M8 3v10M4.5 9.5L8 13l3.5-3.5"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M8 13V3M4.5 6.5L8 3l3.5 3.5"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </Button>
+      <Button
+        variant="secondary"
+        size="icon"
+        class="ws-date-toggle relative"
+        :class="datePanelOpen || hasDateFilter ? 'text-[#007AFF] dark:text-[#64B5FF]' : ''"
+        :aria-pressed="datePanelOpen"
+        :aria-label="hasDateFilter ? '时间筛选（已启用）' : '时间筛选'"
+        title="时间筛选"
+        @click="toggleDatePanel"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M3 3.5h10L9.5 8v4.2l-3-1.5V8L3 3.5z"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <span
+          v-if="hasDateFilter"
+          class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#007AFF] dark:bg-[#0A84FF]"
+          aria-hidden="true"
+        ></span>
+      </Button>
       <Button
         :variant="selecting ? 'primary' : 'secondary'"
         :aria-pressed="selecting"
@@ -791,28 +938,59 @@ onUnmounted(() => {
     </div>
 
     <div
-      class="ws-completed-filter mb-4 flex flex-wrap items-center gap-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
+      v-if="datePanelOpen"
+      class="ws-date-filter mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
     >
-      <span class="font-medium">完成时间</span>
-      <input
-        v-model="completedFrom"
-        type="date"
-        class="ws-date h-9 rounded-xl border border-black/[0.08] bg-white/80 px-3 text-[13px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow] duration-200 ease-[var(--ws-ease)] [color-scheme:light] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:[color-scheme:dark]"
-        aria-label="完成时间起"
-      />
-      <span>至</span>
-      <input
-        v-model="completedTo"
-        type="date"
-        class="ws-date h-9 rounded-xl border border-black/[0.08] bg-white/80 px-3 text-[13px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow] duration-200 ease-[var(--ws-ease)] [color-scheme:light] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:[color-scheme:dark]"
-        aria-label="完成时间止"
-      />
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-medium">创建时间</span>
+        <input
+          v-model="createdFrom"
+          type="date"
+          class="ws-date"
+          aria-label="创建时间起"
+        />
+        <span>至</span>
+        <input
+          v-model="createdTo"
+          type="date"
+          class="ws-date"
+          aria-label="创建时间止"
+        />
+        <Button
+          v-if="hasCreatedFilter"
+          variant="ghost"
+          size="sm"
+          @click="createdFrom = ''; createdTo = ''"
+        >清除</Button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-medium">完成时间</span>
+        <input
+          v-model="completedFrom"
+          type="date"
+          class="ws-date"
+          aria-label="完成时间起"
+        />
+        <span>至</span>
+        <input
+          v-model="completedTo"
+          type="date"
+          class="ws-date"
+          aria-label="完成时间止"
+        />
+        <Button
+          v-if="hasCompletedFilter"
+          variant="ghost"
+          size="sm"
+          @click="completedFrom = ''; completedTo = ''"
+        >清除</Button>
+      </div>
       <Button
-        v-if="hasCompletedFilter"
         variant="ghost"
         size="sm"
-        @click="completedFrom = ''; completedTo = ''"
-      >清除</Button>
+        class="ml-auto"
+        @click="datePanelOpen = false"
+      >收起</Button>
     </div>
 
     <div
@@ -902,14 +1080,17 @@ onUnmounted(() => {
       <section
         v-for="group in groups"
         :key="group.key || 'unclassified'"
-        class="ws-group overflow-hidden rounded-[18px] border border-white/20 bg-white/[0.72] shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
+        class="ws-group overflow-hidden rounded-[18px] border shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-200 ease-[var(--ws-ease)]"
+        :class="activeProject === group.key && activeModule === null
+          ? 'border-black/[0.07] bg-black/[0.02] dark:border-white/[0.12] dark:bg-white/[0.035]'
+          : 'border-white/20 bg-white/[0.72] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70'"
       >
         <header class="ws-group-header group/project flex items-center gap-1 px-2 pb-1 pt-2">
           <button
             type="button"
             class="ws-group-head flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full px-3 text-left transition-colors duration-200 ease-[var(--ws-ease)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"
             :class="activeProject === group.key
-              ? 'bg-[#007AFF]/[0.08] text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]'
+              ? 'text-[#007AFF] dark:text-[#64B5FF]'
               : 'text-[#1d1d1f] hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]'"
             :aria-pressed="activeProject === group.key"
             @click="toggleProject(group.key)"
@@ -952,6 +1133,23 @@ onUnmounted(() => {
                 stroke-width="1.4"
               />
               <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
+            :aria-label="`为 ${group.title} 新建笔记`"
+            title="新建笔记"
+            @click="createNoteHere({ project: group.key })"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
+                stroke="currentColor"
+                stroke-width="1.4"
+              />
+              <path d="M7 5.5v5M4.5 8h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
             </svg>
           </Button>
           <Button
@@ -999,7 +1197,10 @@ onUnmounted(() => {
           <section
             v-for="moduleGroup in group.modules"
             :key="moduleGroup.key || 'unassigned'"
-            class="ws-module group/module"
+            class="ws-module group/module rounded-2xl transition-colors duration-200 ease-[var(--ws-ease)]"
+            :class="activeProject === group.key && activeModule === moduleGroup.key
+              ? 'bg-black/[0.035] dark:bg-white/[0.055]'
+              : ''"
           >
             <div v-if="moduleGroup.label" class="ws-module-header flex items-center gap-1">
               <form
@@ -1032,7 +1233,7 @@ onUnmounted(() => {
                   type="button"
                   class="ws-module-title flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-3 text-left text-[12px] font-medium transition-colors duration-200 ease-[var(--ws-ease)] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"
                   :class="activeProject === group.key && activeModule === moduleGroup.key
-                    ? 'bg-[#007AFF]/[0.08] text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]'
+                    ? 'text-[#007AFF] dark:text-[#64B5FF]'
                     : 'text-[#6e6e73] hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#98989d] dark:hover:bg-white/[0.06] dark:hover:text-[#f5f5f7]'"
                   :aria-pressed="activeProject === group.key && activeModule === moduleGroup.key"
                   @click="toggleModule(group.key, moduleGroup.key)"
@@ -1056,6 +1257,23 @@ onUnmounted(() => {
                       stroke-width="1.4"
                     />
                     <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                  </svg>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
+                  :aria-label="`为 ${moduleGroup.label} 新建笔记`"
+                  title="新建笔记"
+                  @click="createNoteHere({ project: group.key, module: moduleGroup.key })"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                    />
+                    <path d="M7 5.5v5M4.5 8h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
                   </svg>
                 </Button>
                 <Button
@@ -1138,7 +1356,7 @@ onUnmounted(() => {
                   class="ws-todo-detail line-clamp-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
                 >{{ todo.detail }}</p>
                 <div
-                  v-if="todo.dueDate || todo.completedAt"
+                  v-if="todo.dueDate || todo.completedAt || todo.createdAt"
                   class="ws-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]"
                 >
                   <span
@@ -1149,11 +1367,30 @@ onUnmounted(() => {
                   <span v-if="todo.completedAt" class="ws-completed-at">
                     完成于 {{ formatDateTime(todo.completedAt) }}
                   </span>
+                  <span v-if="todo.createdAt" class="ws-created-at">
+                    创建于 {{ formatDateTime(todo.createdAt) }}
+                  </span>
                 </div>
               </div>
               <div
                 class="ws-todo-actions flex shrink-0 items-center self-center transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
               >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  :aria-label="`为 ${todo.title} 新建笔记`"
+                  title="新建笔记"
+                  @click="createNoteHere({ todo: todo.name })"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path
+                      d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
+                      stroke="currentColor"
+                      stroke-width="1.4"
+                    />
+                    <path d="M7 5.5v5M4.5 8h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                  </svg>
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1201,11 +1438,20 @@ onUnmounted(() => {
                 </Button>
               </div>
             </article>
+            <QuickAddTodo
+              v-if="moduleGroup.label && !selecting"
+              :create="(title) => quickCreate(group.key, moduleGroup.key, title)"
+            />
           </section>
           <p
             v-if="!group.modules.length && group.key"
             class="px-3 pb-1 text-[12px] text-[#1d1d1f]/35 dark:text-[#f5f5f7]/30"
           >还没有模块，点右侧 + 添加。</p>
+          <QuickAddTodo
+            v-if="!selecting"
+            :create="(title) => quickCreate(group.key, '', title)"
+            :placeholder="group.key ? `添加到「${group.title}」（不分模块）…` : '添加待办…'"
+          />
         </div>
       </section>
 

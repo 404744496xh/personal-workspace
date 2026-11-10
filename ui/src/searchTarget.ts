@@ -15,6 +15,8 @@ export interface NotesTarget {
   module?: string
   todo?: string
   noteName?: string
+  create?: boolean
+  includeProjectTodos?: boolean
 }
 
 let pendingNotes: NotesTarget | null = null
@@ -26,5 +28,22 @@ export function setNotesTarget(value: NotesTarget): void {
 export function takeNotesTarget(): NotesTarget | null {
   const value = pendingNotes
   pendingNotes = null
+  return value
+}
+
+export interface TodosTarget {
+  project?: string
+  module?: string
+}
+
+let pendingTodos: TodosTarget | null = null
+
+export function setTodosTarget(value: TodosTarget): void {
+  pendingTodos = value
+}
+
+export function takeTodosTarget(): TodosTarget | null {
+  const value = pendingTodos
+  pendingTodos = null
   return value
 }

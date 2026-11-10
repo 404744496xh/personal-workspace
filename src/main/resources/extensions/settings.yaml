@@ -1,0 +1,14 @@
+apiVersion: v1alpha1
+kind: Setting
+metadata:
+  name: personal-workspace-settings
+spec:
+  forms:
+    - group: basic
+      label: 基础设置
+      formSchema:
+        - $formkit: text
+          name: collapseShortcut
+          label: 折叠全部快捷键
+          help: 依次按下的键，用 + 分隔（如 z+d+v）。在工作台且焦点不在输入框或编辑器时生效，用于折叠/展开侧栏与时间筛选，不影响笔记内部。
+          value: z+d+v

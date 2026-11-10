@@ -34,7 +34,9 @@ const moduleFilter = ref(
   target?.module !== undefined ? (target.module === '' ? '__none__' : target.module) : ''
 )
 const todoFilter = ref(target?.todo ?? '')
+const includeProjectTodos = ref(target?.includeProjectTodos === true)
 const pendingNoteName = ref(target?.noteName ?? null)
+const pendingCreate = ref(target?.create === true)
 const loading = ref(true)
 const error = ref('')
 
@@ -64,6 +66,9 @@ const moduleOptions = computed(() => {
   return [...new Set(projects.value.flatMap((project) => project.modules))]
 })
 
+const todoProjectOf = computed(() =>
+  new Map(todos.value.map((todo) => [todo.name, todo.project])))
+
 const todoOptions = computed(() =>
   todos.value.filter((todo) => {
     if (projectFilter.value && projectFilter.value !== '__none__'
@@ -86,7 +91,10 @@ function matchesFilters(note: Note): boolean {
     if (projectFilter.value === '__none__') {
       if (note.project) return false
     } else if (note.project !== projectFilter.value) {
-      return false
+      // 项目跳转时把关联到该项目下待办的笔记也算进来
+      const sameProjectTodo = note.todos.some(
+        (name) => todoProjectOf.value.get(name) === projectFilter.value)
+      if (!includeProjectTodos.value || !sameProjectTodo) return false
     }
   }
   if (moduleFilter.value) {
@@ -119,6 +127,7 @@ const filteredNotes = computed(() => {
 })
 
 watch(projectFilter, () => {
+  includeProjectTodos.value = false
   if (moduleFilter.value && moduleFilter.value !== '__none__'
     && !moduleOptions.value.includes(moduleFilter.value)) {
     moduleFilter.value = ''
@@ -139,6 +148,7 @@ function clearFilters(): void {
   projectFilter.value = ''
   moduleFilter.value = ''
   todoFilter.value = ''
+  includeProjectTodos.value = false
 }
 
 function setProjectFilter(value: string | null): void {
@@ -169,7 +179,10 @@ async function load(): Promise<void> {
     notes.value = noteList
     projects.value = projectList
     todos.value = todoList.items
-    if (pendingNoteName.value) {
+    if (pendingCreate.value) {
+      pendingCreate.value = false
+      openCreateFromTarget()
+    } else if (pendingNoteName.value) {
       const note = noteList.find((item) => item.name === pendingNoteName.value)
       pendingNoteName.value = null
       if (note) openEdit(note)
@@ -195,6 +208,19 @@ function openCreate(): void {
       ? moduleFilter.value
       : undefined,
     todo: todoFilter.value || undefined
+  }
+  editing.value = null
+  editorOpen.value = true
+}
+
+function openCreateFromTarget(): void {
+  const todo = target?.todo
+    ? todos.value.find((item) => item.name === target.todo)
+    : undefined
+  createDefaults.value = {
+    project: target?.project || todo?.project || undefined,
+    module: target?.module ?? todo?.module ?? undefined,
+    todo: target?.todo || undefined
   }
   editing.value = null
   editorOpen.value = true
@@ -300,6 +326,11 @@ onMounted(() => {
           {{ project.title }}
         </option>
       </Select>
+      <span
+        v-if="includeProjectTodos && projectFilter && projectFilter !== '__none__'"
+        class="inline-flex min-h-7 items-center rounded-full bg-[#007AFF]/[0.10] px-2.5 text-[11px] font-medium text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]"
+        title="包含该项目下模块与待办关联的笔记"
+      >含待办笔记</span>
       <Select v-model="moduleFilter" class="w-[150px]" aria-label="按模块筛选" :disabled="!moduleOptions.length">
         <option value="">全部模块</option>
         <option value="__none__">未分模块</option>

@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import TodosView from './views/TodosView.vue'
 import ProjectsView from './views/ProjectsView.vue'
 import CommandsView from './views/CommandsView.vue'
 import NotesView from './views/NotesView.vue'
 import BackupView from './views/BackupView.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
-import { setNotesTarget, setSearchTarget } from './searchTarget'
-import type { NotesTarget } from './searchTarget'
+import { setNotesTarget, setSearchTarget, setTodosTarget } from './searchTarget'
+import type { NotesTarget, TodosTarget } from './searchTarget'
 import { scheme, toggleScheme } from './theme'
 import type { SearchType } from './types'
 
@@ -38,6 +38,98 @@ const me = ref<{ username: string } | null>(initialUsername ? { username: initia
 const authState = ref<AuthState>(initialUsername ? 'ok' : 'unauthorized')
 const loginUrl = '/login?redirect_uri=' + encodeURIComponent('/workspace')
 
+interface ShortcutConfig {
+  ctrl: boolean
+  shift: boolean
+  alt: boolean
+  meta: boolean
+  keys: string[]
+}
+
+function parseShortcut(raw: string): ShortcutConfig {
+  const tokens = raw.toLowerCase().split('+').map((token) => token.trim()).filter(Boolean)
+  const config: ShortcutConfig = { ctrl: false, shift: false, alt: false, meta: false, keys: [] }
+  for (const token of tokens) {
+    if (token === 'ctrl' || token === 'control') config.ctrl = true
+    else if (token === 'shift') config.shift = true
+    else if (token === 'alt' || token === 'option') config.alt = true
+    else if (token === 'meta' || token === 'cmd' || token === 'command') config.meta = true
+    else config.keys.push(token)
+  }
+  if (!config.keys.length) config.keys = ['z', 'd', 'v']
+  return config
+}
+
+const shortcut = parseShortcut(rootElement?.dataset.collapseShortcut ?? 'z+d+v')
+const hasModifiers = shortcut.ctrl || shortcut.shift || shortcut.alt || shortcut.meta
+const collapsedAll = ref(false)
+let shortcutProgress = 0
+let shortcutTimer: ReturnType<typeof setTimeout> | undefined
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA'
+    || element.tagName === 'SELECT' || element.isContentEditable
+}
+
+function resetShortcut(): void {
+  shortcutProgress = 0
+  if (shortcutTimer) window.clearTimeout(shortcutTimer)
+}
+
+function toggleCollapseAll(): void {
+  collapsedAll.value = !collapsedAll.value
+  sidebarHidden.value = collapsedAll.value
+  localStorage.setItem(SIDEBAR_KEY, sidebarHidden.value ? '1' : '0')
+  window.dispatchEvent(new CustomEvent('workspace:collapse-all', {
+    detail: { collapsed: collapsedAll.value }
+  }))
+}
+
+function onShortcutKeydown(event: KeyboardEvent): void {
+  if (event.repeat) return
+  if (isEditableTarget(event.target)) {
+    resetShortcut()
+    return
+  }
+  const key = event.key.toLowerCase()
+  if (hasModifiers) {
+    if (shortcut.keys.length !== 1) return
+    if (event.ctrlKey !== shortcut.ctrl || event.shiftKey !== shortcut.shift
+      || event.altKey !== shortcut.alt || event.metaKey !== shortcut.meta) {
+      return
+    }
+    if (key === shortcut.keys[0]) {
+      event.preventDefault()
+      toggleCollapseAll()
+    }
+    return
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) return
+  if (key === shortcut.keys[shortcutProgress]) {
+    shortcutProgress += 1
+    if (shortcutProgress === shortcut.keys.length) {
+      resetShortcut()
+      event.preventDefault()
+      toggleCollapseAll()
+      return
+    }
+  } else {
+    shortcutProgress = key === shortcut.keys[0] ? 1 : 0
+  }
+  if (shortcutTimer) window.clearTimeout(shortcutTimer)
+  if (shortcutProgress > 0) {
+    shortcutTimer = window.setTimeout(resetShortcut, 1500)
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onShortcutKeydown, true))
+onBeforeUnmount(() => {
+  resetShortcut()
+  window.removeEventListener('keydown', onShortcutKeydown, true)
+})
+
 const current = computed(() => navItems.find((item) => item.key === tab.value) ?? navItems[0])
 const themeAction = computed(() => scheme.value === 'dark' ? '切换到浅色模式' : '切换到深色模式')
 
@@ -62,6 +154,12 @@ function onSearchSelect(type: SearchType, title: string): void {
 function onOpenNotes(target: NotesTarget): void {
   setNotesTarget(target)
   tab.value = 'notes'
+  viewKey.value += 1
+}
+
+function onOpenTodos(target: TodosTarget): void {
+  setTodosTarget(target)
+  tab.value = 'todos'
   viewKey.value += 1
 }
 
@@ -140,7 +238,7 @@ function toggleSidebar(): void {
       </aside>
 
       <main class="ws-main min-w-0">
-        <header class="ws-header mb-6 flex flex-wrap items-start justify-between gap-4 lg:mb-8">
+        <header class="ws-header mb-5 flex flex-wrap items-start justify-between gap-4 lg:mb-6">
           <div class="flex min-w-0 items-start gap-2">
             <button
               v-if="sidebarHidden"
@@ -219,6 +317,8 @@ function toggleSidebar(): void {
           v-else-if="tab === 'projects'"
           :key="viewKey"
           @unauthorized="onUnauthorized"
+          @open-notes="onOpenNotes"
+          @open-todos="onOpenTodos"
         />
         <CommandsView
           v-else-if="tab === 'commands'"

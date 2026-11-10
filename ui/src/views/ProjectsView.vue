@@ -4,6 +4,7 @@ import {
   ApiError,
   createProject,
   deleteProject,
+  listNotes,
   listProjects,
   listTodos,
   renameModule,
@@ -12,6 +13,7 @@ import {
 import type { Project, ProjectPayload, Todo } from '../types'
 import { messageOf, safeHref } from '../utils'
 import { takeSearchTarget } from '../searchTarget'
+import type { NotesTarget, TodosTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
@@ -25,7 +27,11 @@ interface ProjectStats {
   done: number
 }
 
-const emit = defineEmits<{ unauthorized: [] }>()
+const emit = defineEmits<{
+  unauthorized: []
+  openNotes: [target: NotesTarget]
+  openTodos: [target: TodosTarget]
+}>()
 
 const projects = ref<Project[]>([])
 const todos = ref<Todo[]>([])
@@ -37,6 +43,7 @@ const formOpen = ref(false)
 const editing = ref<Project | null>(null)
 const saving = ref(false)
 const pendingDelete = ref<Project | null>(null)
+const noteBusy = ref<string | null>(null)
 const { toast, show } = useToast()
 
 const stats = computed(() => {
@@ -133,6 +140,31 @@ async function save(payload: ProjectPayload): Promise<void> {
 
 function askDelete(project: Project): void {
   pendingDelete.value = project
+}
+
+async function openProjectNotes(project: Project): Promise<void> {
+  if (noteBusy.value) return
+  noteBusy.value = project.name
+  try {
+    const notes = await listNotes()
+    const todoNames = new Set(
+      todos.value.filter((todo) => todo.project === project.name).map((todo) => todo.name))
+    const matched = notes.filter((note) => note.project === project.name
+      || note.todos.some((name) => todoNames.has(name)))
+    emit('openNotes', {
+      project: project.name,
+      includeProjectTodos: true,
+      noteName: matched.length === 1 ? matched[0].name : undefined
+    })
+  } catch (err) {
+    handleError(err)
+  } finally {
+    noteBusy.value = null
+  }
+}
+
+function openProjectTodos(project: Project): void {
+  emit('openTodos', { project: project.name })
 }
 
 async function onModuleRenamed(from: string, to: string): Promise<void> {
@@ -238,6 +270,35 @@ onMounted(() => {
             </p>
           </div>
           <div class="flex shrink-0 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
+            <Button
+              variant="ghost"
+              size="icon"
+              :disabled="noteBusy !== null"
+              :aria-label="`查看 ${project.title} 的关联笔记`"
+              title="查看关联笔记"
+              @click.stop="openProjectNotes(project)"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path
+                  d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                />
+                <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              :aria-label="`查看 ${project.title} 的待办`"
+              title="查看待办"
+              @click.stop="openProjectTodos(project)"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.4" />
+                <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </Button>
             <Button variant="ghost" size="icon" aria-label="编辑" title="编辑" @click.stop="openEdit(project)">
               <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path

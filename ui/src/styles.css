@@ -157,3 +157,431 @@
 #workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor-outline {
   border-left-color: rgba(255, 255, 255, 0.08);
 }
+
+/* Vditor 给行内代码设了 pre-wrap + break-word，表格里会被压成一两字符宽，改成不换行让表格横向滚动 */
+#workspace-app .ws-note-editor .vditor-reset table code:not(.hljs) {
+  white-space: nowrap;
+  word-break: normal;
+}
+
+/* 行内 HTML 补出来的预览：跟着文字走，不要撑出块级间距 */
+#workspace-app .ws-note-editor .vditor-ir span.vditor-ir__preview {
+  min-height: 0;
+}
+
+#workspace-app .ws-note-editor .vditor-ir span.vditor-ir__preview img {
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+/* 大纲折叠：展开时左缘一个细箭头，收起后留一条贴右缘的轨道 */
+#workspace-app .ws-outline-arrow {
+  position: absolute;
+  right: 242px;
+  top: 50%;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 56px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: rgba(29, 29, 31, 0.32);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  opacity: 0.65;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+}
+
+#workspace-app .ws-outline-arrow:hover {
+  opacity: 1;
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+#workspace-app .ws-outline-rail {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 18px;
+  padding: 6px 0;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  transform: translateY(-50%);
+}
+
+#workspace-app .ws-outline-rail__expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 22px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(29, 29, 31, 0.32);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#workspace-app .ws-outline-rail__expand:hover {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+#workspace-app .ws-outline-dash {
+  width: 8px;
+  height: 2px;
+  padding: 0;
+  background: rgba(29, 29, 31, 0.28);
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: width 0.15s, background-color 0.15s;
+}
+
+#workspace-app .ws-outline-dash.is-h1 {
+  width: 12px;
+}
+
+#workspace-app .ws-outline-dash.is-h3 {
+  width: 6px;
+}
+
+#workspace-app .ws-outline-dash.is-h4 {
+  width: 4px;
+}
+
+#workspace-app .ws-outline-dash:hover {
+  width: 12px;
+  background: #007aff;
+}
+
+#workspace-app .ws-outline-flyout {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  width: 240px;
+  max-height: 60vh;
+  padding: 8px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  transform: translateY(-50%);
+}
+
+#workspace-app .ws-outline-flyout__head {
+  padding: 2px 8px 6px;
+  font-size: 12px;
+  color: rgba(29, 29, 31, 0.4);
+}
+
+#workspace-app .ws-outline-flyout__item {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: #1d1d1f;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#workspace-app .ws-outline-flyout__item.is-h2 {
+  padding-left: 16px;
+}
+
+#workspace-app .ws-outline-flyout__item.is-h3 {
+  padding-left: 26px;
+  color: #6e6e73;
+}
+
+#workspace-app .ws-outline-flyout__item.is-h4 {
+  padding-left: 36px;
+  color: #6e6e73;
+}
+
+#workspace-app .ws-outline-flyout__item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-arrow,
+#workspace-app[data-ws-theme="dark"] .ws-outline-rail {
+  color: rgba(245, 245, 247, 0.35);
+  background: rgba(44, 44, 46, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-arrow:hover,
+#workspace-app[data-ws-theme="dark"] .ws-outline-rail__expand:hover {
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-dash {
+  background: rgba(245, 245, 247, 0.3);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-dash:hover {
+  background: #0a84ff;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-flyout {
+  background: #1c1c1e;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-flyout__head {
+  color: rgba(245, 245, 247, 0.4);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-flyout__item {
+  color: #f5f5f7;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-flyout__item.is-h3,
+#workspace-app[data-ws-theme="dark"] .ws-outline-flyout__item.is-h4 {
+  color: #98989d;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-outline-flyout__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Mermaid 图：与前台文章同一套磨砂卡片 + 点阵底纹（theme-hao 的 text-diagram） */
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) {
+  margin: 10px 0;
+  padding: 18px 14px;
+  overflow-x: auto;
+  text-align: center;
+  background-color: rgba(255, 255, 255, 0.92);
+  background-image: radial-gradient(circle, rgba(99, 102, 241, 0.08) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+  border: 1px solid #eceef5;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 10px 30px -12px rgba(15, 23, 42, 0.06);
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) svg {
+  max-width: 100%;
+  height: auto;
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .node rect,
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .node polygon,
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .node circle {
+  rx: 10;
+  ry: 10;
+  stroke-width: 1.4px;
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.05));
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .node .label,
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .nodeLabel {
+  font-weight: 600;
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .flowchart-link,
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .edgePath .path,
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .edge-thickness-normal {
+  stroke-width: 1.8px;
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .edgeLabel {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .cluster rect {
+  rx: 14;
+  ry: 14;
+}
+
+#workspace-app .ws-note-editor .vditor-ir__preview:has(.language-mermaid) .actor {
+  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.05));
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-note-editor .vditor-ir__preview:has(.language-mermaid) {
+  background-color: rgba(22, 28, 42, 0.85);
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.09) 1.2px, transparent 1.2px);
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 10px 30px -12px rgba(0, 0, 0, 0.45);
+}
+
+/* 日期筛选输入：创建时间 / 完成时间共用 */
+#workspace-app .ws-date {
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 12px;
+  font-size: 13px;
+  color: #1d1d1f;
+  outline: none;
+  color-scheme: light;
+  transition: border-color 0.2s var(--ws-ease), box-shadow 0.2s var(--ws-ease);
+}
+
+#workspace-app .ws-date:focus {
+  border-color: rgba(0, 122, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-date {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f5f7;
+  color-scheme: dark;
+}
+
+/* 行内快速创建待办：幽灵输入行，悬停/聚焦时点亮，回车即建 */
+#workspace-app .ws-quick-add {
+  margin: 2px 4px 0;
+}
+
+#workspace-app .ws-quick-add-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px dashed transparent;
+  transition: background-color 0.2s var(--ws-ease), border-color 0.2s var(--ws-ease);
+}
+
+#workspace-app .ws-quick-add-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  color: rgba(29, 29, 31, 0.28);
+  transition: color 0.2s var(--ws-ease);
+}
+
+#workspace-app .ws-quick-add-input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  outline: none;
+  padding: 0 4px;
+  font-size: 13.5px;
+  color: #1d1d1f;
+}
+
+#workspace-app .ws-quick-add-input::placeholder {
+  color: rgba(29, 29, 31, 0.32);
+}
+
+#workspace-app .ws-quick-add-input:disabled {
+  opacity: 0.6;
+}
+
+#workspace-app .ws-quick-add:hover .ws-quick-add-row {
+  background: rgba(0, 0, 0, 0.025);
+}
+
+#workspace-app .ws-quick-add:hover .ws-quick-add-icon {
+  color: rgba(0, 122, 255, 0.7);
+}
+
+#workspace-app .ws-quick-add.is-active .ws-quick-add-row {
+  background: rgba(0, 122, 255, 0.05);
+  border-color: rgba(0, 122, 255, 0.28);
+  border-style: solid;
+}
+
+#workspace-app .ws-quick-add.is-active .ws-quick-add-icon {
+  color: #007aff;
+}
+
+#workspace-app .ws-quick-add.is-active .ws-quick-add-input::placeholder {
+  color: rgba(29, 29, 31, 0.4);
+}
+
+#workspace-app .ws-quick-add-hint {
+  flex-shrink: 0;
+  padding-right: 12px;
+  font-size: 11px;
+  color: rgba(29, 29, 31, 0.35);
+}
+
+#workspace-app .ws-quick-add-done {
+  display: flex;
+  flex-shrink: 0;
+  padding-right: 12px;
+  color: #34c759;
+}
+
+#workspace-app .ws-quick-add-error {
+  padding: 0 12px 6px 48px;
+  font-size: 12px;
+  color: #ff3b30;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add-icon {
+  color: rgba(245, 245, 247, 0.3);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add-input {
+  color: #f5f5f7;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add-input::placeholder {
+  color: rgba(245, 245, 247, 0.32);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add:hover .ws-quick-add-row {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add:hover .ws-quick-add-icon {
+  color: rgba(10, 132, 255, 0.8);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add.is-active .ws-quick-add-row {
+  background: rgba(10, 132, 255, 0.1);
+  border-color: rgba(10, 132, 255, 0.4);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add.is-active .ws-quick-add-icon {
+  color: #0a84ff;
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add.is-active .ws-quick-add-input::placeholder {
+  color: rgba(245, 245, 247, 0.4);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-quick-add-hint {
+  color: rgba(245, 245, 247, 0.4);
+}

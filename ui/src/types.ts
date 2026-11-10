@@ -20,6 +20,7 @@ export interface Todo {
   dueDate: string | null
   completed: boolean
   completedAt: string | null
+  createdAt: string | null
 }
 
 export interface TodoListResponse {

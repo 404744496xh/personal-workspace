@@ -11,11 +11,13 @@ public record TodoView(
     String module,
     String dueDate,
     boolean completed,
-    String completedAt
+    String completedAt,
+    String createdAt
 ) {
 
     public static TodoView of(WorkspaceTodo todo) {
         var spec = todo.getSpec();
+        var created = todo.getMetadata().getCreationTimestamp();
         return new TodoView(
             todo.getMetadata().getName(),
             spec.getTitle(),
@@ -25,7 +27,8 @@ public record TodoView(
             spec.getModule(),
             spec.getDueDate(),
             spec.isCompleted(),
-            spec.getCompletedAt()
+            spec.getCompletedAt(),
+            created == null ? null : created.toString()
         );
     }
 }
