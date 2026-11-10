@@ -17,6 +17,7 @@ import Select from '../components/ui/Select.vue'
 import CommandForm from '../components/CommandForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
+import { toolsCollapsed } from '../collapse'
 
 const emit = defineEmits<{ unauthorized: [] }>()
 
@@ -149,6 +150,7 @@ onMounted(() => {
 
 <template>
   <div class="ws-view">
+    <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
         <svg
@@ -173,6 +175,7 @@ onMounted(() => {
         新建命令
       </Button>
     </div>
+    </template>
 
     <section
       v-if="error"

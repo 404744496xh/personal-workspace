@@ -20,6 +20,7 @@ import Input from '../components/ui/Input.vue'
 import ProjectForm from '../components/ProjectForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
+import { toolsCollapsed } from '../collapse'
 
 interface ProjectStats {
   total: number
@@ -202,6 +203,7 @@ onMounted(() => {
 
 <template>
   <div class="ws-view">
+    <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
         <svg
@@ -222,6 +224,7 @@ onMounted(() => {
         新建项目
       </Button>
     </div>
+    </template>
 
     <section
       v-if="error"

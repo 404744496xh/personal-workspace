@@ -9,6 +9,7 @@ import GlobalSearch from './components/GlobalSearch.vue'
 import { setNotesTarget, setSearchTarget, setTodosTarget } from './searchTarget'
 import type { NotesTarget, TodosTarget } from './searchTarget'
 import { scheme, toggleScheme } from './theme'
+import { toolsCollapsed } from './collapse'
 import type { SearchType } from './types'
 
 type TabKey = 'todos' | 'projects' | 'commands' | 'notes' | 'backup'
@@ -62,7 +63,6 @@ function parseShortcut(raw: string): ShortcutConfig {
 
 const shortcut = parseShortcut(rootElement?.dataset.collapseShortcut ?? 'z+d+v')
 const hasModifiers = shortcut.ctrl || shortcut.shift || shortcut.alt || shortcut.meta
-const collapsedAll = ref(false)
 let shortcutProgress = 0
 let shortcutTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -79,12 +79,10 @@ function resetShortcut(): void {
 }
 
 function toggleCollapseAll(): void {
-  collapsedAll.value = !collapsedAll.value
-  sidebarHidden.value = collapsedAll.value
-  localStorage.setItem(SIDEBAR_KEY, sidebarHidden.value ? '1' : '0')
-  window.dispatchEvent(new CustomEvent('workspace:collapse-all', {
-    detail: { collapsed: collapsedAll.value }
-  }))
+  const collapsed = !(sidebarHidden.value && toolsCollapsed.value)
+  sidebarHidden.value = collapsed
+  localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0')
+  toolsCollapsed.value = collapsed
 }
 
 function onShortcutKeydown(event: KeyboardEvent): void {
@@ -166,6 +164,8 @@ function onOpenTodos(target: TodosTarget): void {
 function toggleSidebar(): void {
   sidebarHidden.value = !sidebarHidden.value
   localStorage.setItem(SIDEBAR_KEY, sidebarHidden.value ? '1' : '0')
+  // 从折叠态展开侧栏时，一并恢复被快捷键收起的工具区
+  if (!sidebarHidden.value) toolsCollapsed.value = false
 }
 </script>
 
@@ -178,7 +178,7 @@ function toggleSidebar(): void {
       :class="sidebarHidden ? 'lg:grid-cols-1' : 'lg:grid-cols-[208px_minmax(0,1fr)]'"
     >
       <aside
-        class="ws-sidebar flex-col gap-4 rounded-[18px] border border-white/20 bg-white/[0.72] p-3 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/10 dark:bg-[#1c1c1e]/70 lg:sticky lg:top-6"
+        class="ws-sidebar flex-col gap-4 rounded-[18px] border border-white/20 bg-white/[0.72] p-3 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/10 dark:bg-[#1c1c1e]/70 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]"
         :class="sidebarHidden ? 'flex lg:hidden' : 'flex'"
       >
         <div class="ws-brand flex items-center gap-2.5 px-2 py-1.5">
@@ -208,6 +208,13 @@ function toggleSidebar(): void {
           </button>
         </div>
 
+        <div class="ws-page-context min-w-0 px-2">
+          <h1 class="truncate text-[20px] font-semibold leading-tight tracking-[-0.02em]">{{ current.label }}</h1>
+          <p class="ws-subtitle mt-1 text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
+            {{ current.subtitle }}
+          </p>
+        </div>
+
         <nav class="ws-nav flex gap-1 overflow-x-auto lg:flex-col" aria-label="工作台导航">
           <button
             v-for="item in navItems"
@@ -224,50 +231,21 @@ function toggleSidebar(): void {
           </button>
         </nav>
 
-        <div
-          class="ws-sidebar-footer mt-auto flex items-center justify-between gap-2 border-t border-black/[0.06] px-2 pt-3 text-[12px] dark:border-white/[0.08]"
-        >
-          <span class="ws-user truncate text-[#6e6e73] dark:text-[#98989d]" :title="me?.username ?? ''">
-            {{ me?.username ?? '…' }}
-          </span>
-          <a
-            class="ws-link shrink-0 rounded-full px-2 py-1 font-medium text-[#007AFF] transition-opacity duration-150 hover:opacity-70 dark:text-[#64B5FF]"
-            href="/"
-          >返回站点</a>
-        </div>
-      </aside>
-
-      <main class="ws-main min-w-0">
-        <header class="ws-header mb-5 flex flex-wrap items-start justify-between gap-4 lg:mb-6">
-          <div class="flex min-w-0 items-start gap-2">
-            <button
-              v-if="sidebarHidden"
-              type="button"
-              class="ws-sidebar-expand mt-1.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 lg:inline-flex dark:text-[#98989d] dark:hover:bg-white/[0.08] dark:hover:text-[#f5f5f7]"
-              aria-label="展开导航"
-              title="展开导航"
-              @click="toggleSidebar"
-            >
-              <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-              </svg>
-            </button>
-            <div class="min-w-0">
-              <h1 class="text-[28px] font-semibold leading-tight tracking-[-0.02em]">{{ current.label }}</h1>
-              <p class="ws-subtitle mt-1 text-[13px] text-[#6e6e73] dark:text-[#98989d]">
-                {{ current.subtitle }}
-              </p>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <GlobalSearch
-              v-if="authState === 'ok'"
-              @select="onSearchSelect"
-              @unauthorized="onUnauthorized"
-            />
+        <div class="ws-sidebar-tools mt-auto flex flex-col gap-2">
+          <GlobalSearch
+            v-if="authState === 'ok'"
+            @select="onSearchSelect"
+            @unauthorized="onUnauthorized"
+          />
+          <div
+            class="ws-sidebar-footer flex items-center gap-1.5 border-t border-black/[0.06] px-1 pt-2 text-[12px] dark:border-white/[0.08]"
+          >
+            <span class="ws-user min-w-0 flex-1 truncate text-[#6e6e73] dark:text-[#98989d]" :title="me?.username ?? ''">
+              {{ me?.username ?? '…' }}
+            </span>
             <button
               type="button"
-              class="ws-theme-toggle inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/[0.72] text-[#6e6e73] shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl transition-colors duration-150 hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:border-white/10 dark:bg-[#1c1c1e]/70 dark:text-[#98989d] dark:hover:text-[#f5f5f7]"
+              class="ws-theme-toggle inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:text-[#98989d] dark:hover:bg-white/[0.08] dark:hover:text-[#f5f5f7]"
               :aria-label="themeAction"
               :title="themeAction"
               @click="toggleScheme"
@@ -290,9 +268,15 @@ function toggleSidebar(): void {
                 />
               </svg>
             </button>
+            <a
+              class="ws-link shrink-0 rounded-full px-2 py-1 font-medium text-[#007AFF] transition-opacity duration-150 hover:opacity-70 dark:text-[#64B5FF]"
+              href="/"
+            >返回站点</a>
           </div>
-        </header>
+        </div>
+      </aside>
 
+      <main class="ws-main min-w-0">
         <section
           v-if="authState === 'unauthorized'"
           class="ws-state flex flex-col items-center justify-center gap-3 rounded-[18px] border border-white/20 bg-white/[0.72] px-6 py-16 text-center backdrop-blur-xl saturate-[180%] dark:border-white/10 dark:bg-[#1c1c1e]/70"
@@ -337,5 +321,16 @@ function toggleSidebar(): void {
         />
       </main>
     </div>
+
+    <button
+      v-if="sidebarHidden"
+      type="button"
+      class="ws-sidebar-expand-rail hidden lg:inline-flex"
+      aria-label="展开导航"
+      title="展开导航"
+      @click="toggleSidebar"
+    >
+      »
+    </button>
   </div>
 </template>

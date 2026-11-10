@@ -50,9 +50,9 @@ const localError = ref('')
 const uploading = ref(0)
 const ready = ref(false)
 
-// 大纲折叠偏好跨次打开保留，和 post-workbench 的编辑器一致
+// 大纲折叠偏好跨次打开保留；默认收起成右侧细轨，鼠标悬停/点击展开
 const OUTLINE_KEY = 'personal-workspace:outline-hidden'
-const outlineHidden = ref(localStorage.getItem(OUTLINE_KEY) === '1')
+const outlineHidden = ref(localStorage.getItem(OUTLINE_KEY) !== '0')
 const outlineAvailable = ref(false)
 const panelOpen = ref(false)
 const outlineFlyout = ref(false)

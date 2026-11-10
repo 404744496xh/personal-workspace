@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ApiError,
   createProject,
@@ -21,6 +21,7 @@ import QuickAddTodo from '../components/QuickAddTodo.vue'
 import ProjectDialog from '../components/ProjectDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
+import { toolsCollapsed } from '../collapse'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
 import Select from '../components/ui/Select.vue'
@@ -68,7 +69,6 @@ const busy = ref<string | null>(null)
 const noteBusy = ref<string | null>(null)
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 let requestSeq = 0
 
 const creatingProject = ref(false)
@@ -109,7 +109,15 @@ const sortDirectionLabel = computed(() => {
   return desc ? '新→旧' : '旧→新'
 })
 const visibleItems = computed(() => {
+  const needle = keyword.value.trim().toLowerCase()
   const filtered = items.value.filter((todo) => {
+    if (needle) {
+      const haystack = `${todo.title} ${todo.detail ?? ''}`.toLowerCase()
+      if (!haystack.includes(needle)) return false
+    }
+    if (status.value === 'OPEN' && todo.completed) return false
+    if (status.value === 'DONE' && !todo.completed) return false
+    if (priority.value && todo.priority !== priority.value) return false
     if (activeProject.value !== null && projectKeyOf(todo) !== activeProject.value) return false
     if (activeModule.value !== null && (todo.module ?? '') !== activeModule.value) return false
     if (!matchesCreatedRange(todo)) return false
@@ -133,8 +141,7 @@ const activeProjectTitle = computed(() => {
   return projects.value.find((project) => project.name === activeProject.value)?.title ?? '未分类'
 })
 const displayedTotal = computed(() =>
-  activeProject.value === null && !hasCreatedFilter.value && !hasCompletedFilter.value
-    ? total.value : visibleItems.value.length)
+  hasFilters.value ? visibleItems.value.length : total.value)
 const truncated = computed(() =>
   activeProject.value === null && total.value > items.value.length)
 
@@ -257,11 +264,6 @@ function toggleDatePanel(): void {
   datePanelOpen.value = !datePanelOpen.value
 }
 
-function onCollapseAll(event: Event): void {
-  const collapsed = (event as CustomEvent<{ collapsed?: boolean }>).detail?.collapsed
-  datePanelOpen.value = !collapsed
-}
-
 function buildGroups(todos: Todo[], projectList: Project[],
   expandProject: string | null): ProjectGroup[] {
   const projectMap = new Map(projectList.map((project) => [project.name, project]))
@@ -362,12 +364,7 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   try {
     const [projectList, todoList] = await Promise.all([
       listProjects(),
-      listTodos({
-        q: keyword.value.trim(),
-        status: status.value,
-        priority: priority.value,
-        size: PAGE_SIZE
-      })
+      listTodos({ size: PAGE_SIZE })
     ])
     if (seq !== requestSeq) return
     projects.value = projectList
@@ -393,20 +390,9 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   }
 }
 
-function resetAndLoad(): void {
-  void load({ silent: true })
-}
-
 function reloadProjects(): void {
   void load({ silent: true })
 }
-
-watch(keyword, () => {
-  if (searchTimer) window.clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(resetAndLoad, 200)
-})
-
-watch([status, priority], resetAndLoad)
 
 function openCreate(): void {
   editing.value = null
@@ -817,19 +803,17 @@ function isOverdue(todo: Todo): boolean {
 }
 
 onMounted(() => {
-  window.addEventListener('workspace:collapse-all', onCollapseAll)
   void load()
 })
 
 onUnmounted(() => {
-  window.removeEventListener('workspace:collapse-all', onCollapseAll)
   if (toastTimer) window.clearTimeout(toastTimer)
-  if (searchTimer) window.clearTimeout(searchTimer)
 })
 </script>
 
 <template>
   <div class="ws-view">
+    <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
         <svg
@@ -992,6 +976,7 @@ onUnmounted(() => {
         @click="datePanelOpen = false"
       >收起</Button>
     </div>
+    </template>
 
     <div
       v-if="selecting"
