@@ -23,7 +23,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { key: 'todos', label: '待办', subtitle: '按项目与模块整理今天要做的事' },
+  { key: 'todos', label: '待办', subtitle: '按项目与模块整理待办' },
   { key: 'projects', label: '项目', subtitle: '项目进度、模块与关联链接' },
   { key: 'commands', label: '命令', subtitle: '常用命令一键复制' },
   { key: 'notes', label: '笔记', subtitle: 'Markdown 笔记与关联项目待办' },
@@ -162,6 +162,12 @@ function onOpenNotes(target: NotesTarget): void {
 function onOpenTodos(target: TodosTarget): void {
   setTodosTarget(target)
   tab.value = 'todos'
+  viewKey.value += 1
+}
+
+function onHomeOpenProjects(title?: string): void {
+  if (title) setSearchTarget(title)
+  tab.value = 'projects'
   viewKey.value += 1
 }
 
@@ -306,6 +312,8 @@ function toggleSidebar(): void {
         <HomeView
           v-else-if="tab === 'home'"
           @unauthorized="onUnauthorized"
+          @open-todos="onOpenTodos"
+          @open-projects="onHomeOpenProjects"
         />
         <TodosView
           v-else-if="tab === 'todos'"

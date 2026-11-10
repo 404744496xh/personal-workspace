@@ -59,7 +59,16 @@ const error = ref('')
 
 const keyword = ref(takeSearchTarget())
 const todosTarget = takeTodosTarget()
-const status = ref<StatusFilter>('ALL')
+
+function staleCutoff(): string {
+  const date = new Date()
+  date.setDate(date.getDate() - 7)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+const status = ref<StatusFilter>(todosTarget?.status ?? 'ALL')
 const priority = ref<Priority | ''>('')
 const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
@@ -88,7 +97,7 @@ const moduleError = ref('')
 const sortField = ref<SortField>('created')
 const sortDir = ref<SortDirection>('desc')
 const createdFrom = ref('')
-const createdTo = ref('')
+const createdTo = ref(todosTarget?.stale ? staleCutoff() : '')
 const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
@@ -99,7 +108,7 @@ const showFinished = ref(
       project.name === todosTarget.project && project.progress >= 100)
     : false)
 let jumpApplied = showFinished.value || !todosTarget?.project
-const timeOpen = ref(false)
+const timeOpen = ref(Boolean(todosTarget?.stale))
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
 const savingRename = ref(false)
 const renameError = ref('')

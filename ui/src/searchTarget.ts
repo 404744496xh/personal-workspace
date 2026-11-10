@@ -34,6 +34,8 @@ export function takeNotesTarget(): NotesTarget | null {
 export interface TodosTarget {
   project?: string
   module?: string
+  status?: 'OPEN'
+  stale?: boolean
 }
 
 let pendingTodos: TodosTarget | null = null

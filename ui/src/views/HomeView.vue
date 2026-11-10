@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { ApiError, listTodos } from '../api'
+import { ApiError, listProjects, listTodos } from '../api'
 import { readCache, writeCache } from '../cache'
-import type { Todo } from '../types'
+import type { Project, Todo } from '../types'
+import type { TodosTarget } from '../searchTarget'
 import { messageOf } from '../utils'
 import TodoOverview from '../components/TodoOverview.vue'
 import Button from '../components/ui/Button.vue'
 
 const PAGE_SIZE = 500
 const cached = readCache<{ items: Todo[]; total: number }>('todos')
-const emit = defineEmits<{ unauthorized: [] }>()
+const cachedProjects = readCache<Project[]>('projects')
+const emit = defineEmits<{
+  unauthorized: []
+  openTodos: [target: TodosTarget]
+  openProjects: [title?: string]
+}>()
 
 const items = ref<Todo[]>(cached?.items ?? [])
+const projects = ref<Project[]>(cachedProjects ?? [])
 const loading = ref(!cached)
 const error = ref('')
 
@@ -19,9 +26,14 @@ async function load(): Promise<void> {
   loading.value = items.value.length === 0
   error.value = ''
   try {
-    const todoList = await listTodos({ size: PAGE_SIZE })
+    const [todoList, projectList] = await Promise.all([
+      listTodos({ size: PAGE_SIZE }),
+      listProjects()
+    ])
     items.value = todoList.items
+    projects.value = projectList
     writeCache('todos', { items: todoList.items, total: todoList.total })
+    writeCache('projects', projectList)
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
       emit('unauthorized')
@@ -55,6 +67,12 @@ onMounted(load)
       </div>
     </div>
 
-    <TodoOverview v-else :todos="items" />
+    <TodoOverview
+      v-else
+      :todos="items"
+      :projects="projects"
+      @open-todos="(target) => emit('openTodos', target)"
+      @open-projects="(title) => emit('openProjects', title)"
+    />
   </div>
 </template>
