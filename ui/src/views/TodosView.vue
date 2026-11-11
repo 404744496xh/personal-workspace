@@ -106,6 +106,8 @@ const selected = ref<Set<string>>(new Set())
 const importOpen = ref(false)
 const bulkBusy = ref(false)
 const bulkDeleteOpen = ref(false)
+const bulkMenuOpen = ref(false)
+const bulkMenuRef = ref<HTMLElement | null>(null)
 const moveOpen = ref(false)
 const moveProject = ref('')
 const moveModule = ref('')
@@ -739,7 +741,22 @@ async function saveModule(projectKey: string): Promise<void> {
 
 function toggleSelecting(): void {
   selecting.value = !selecting.value
-  if (!selecting.value) selected.value = new Set()
+  if (!selecting.value) {
+    selected.value = new Set()
+    bulkMenuOpen.value = false
+    moveOpen.value = false
+  }
+}
+
+function handleBulkMenuPointerDown(event: PointerEvent): void {
+  if (!bulkMenuOpen.value) return
+  const target = event.target
+  if (target instanceof Node && bulkMenuRef.value?.contains(target)) return
+  bulkMenuOpen.value = false
+}
+
+function handleBulkMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && bulkMenuOpen.value) bulkMenuOpen.value = false
 }
 
 function toggleSelect(name: string): void {
@@ -1157,10 +1174,14 @@ function isOverdue(todo: Todo): boolean {
 
 onMounted(() => {
   void load({ silent: Boolean(cachedTodos) })
+  document.addEventListener('pointerdown', handleBulkMenuPointerDown)
+  document.addEventListener('keydown', handleBulkMenuKeydown)
 })
 
 onUnmounted(() => {
   if (toastTimer) window.clearTimeout(toastTimer)
+  document.removeEventListener('pointerdown', handleBulkMenuPointerDown)
+  document.removeEventListener('keydown', handleBulkMenuKeydown)
 })
 </script>
 
@@ -1382,7 +1403,7 @@ onUnmounted(() => {
 
     <div
       v-if="selecting"
-      class="ws-select-bar mb-4 flex flex-wrap items-center gap-3 rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-2 backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
+      class="ws-select-bar relative z-20 mb-4 flex flex-wrap items-center gap-3 rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-2 backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
     >
       <label class="flex min-h-11 cursor-pointer items-center gap-2 text-[13px] font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">
         <input
@@ -1400,34 +1421,72 @@ onUnmounted(() => {
         已选 {{ selectedTodos.length }} 项
       </span>
       <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" :disabled="!selectedTodos.length || bulkBusy" @click="clearSelected">
-          清除选择
-        </Button>
-        <Button variant="ghost" size="sm" :disabled="bulkBusy" title="将所选待办标记为已完成" @click="bulkComplete">
-          完成
-        </Button>
-        <Button variant="ghost" size="sm" :disabled="bulkBusy" title="将所选待办标记为不用处理" @click="bulkDismiss">
-          不用处理
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          :disabled="bulkBusy"
-          :aria-expanded="moveOpen"
-          title="把所选待办移到别的项目或模块"
-          @click="moveOpen = !moveOpen"
-        >
-          移动
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          class="text-[#FF3B30]/75 hover:text-[#FF3B30]"
-          :disabled="bulkBusy"
-          @click="bulkDeleteOpen = true"
-        >
-          删除
-        </Button>
+        <div ref="bulkMenuRef" class="relative">
+          <Button
+            variant="ghost"
+            size="sm"
+            :disabled="!selectedTodos.length || bulkBusy"
+            :aria-expanded="bulkMenuOpen"
+            aria-haspopup="menu"
+            title="批量操作"
+            @click="bulkMenuOpen = !bulkMenuOpen"
+          >
+            批量操作
+            <svg
+              class="h-3 w-3 transition-transform duration-200 ease-[var(--ws-ease)]"
+              :class="{ 'rotate-180': bulkMenuOpen }"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M3.5 6l4.5 4.5L12.5 6"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </Button>
+          <div
+            v-if="bulkMenuOpen"
+            class="ws-bulk-menu absolute right-0 top-full z-30 mt-1 min-w-[168px] overflow-hidden rounded-xl border border-black/[0.08] bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+            role="menu"
+            aria-label="批量操作"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; bulkComplete()"
+            >标记完成</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; bulkDismiss()"
+            >标记不用处理</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; moveOpen = true"
+            >移动到…</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#FF3B30] transition-colors duration-150 hover:bg-[#FF3B30]/[0.08]"
+              @click="bulkMenuOpen = false; bulkDeleteOpen = true"
+            >删除所选</button>
+            <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#98989d] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; clearSelected()"
+            >清除选择</button>
+          </div>
+        </div>
         <Button variant="primary" size="sm" :disabled="!selectedTodos.length || bulkBusy" @click="copySelected">
           <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4" />
