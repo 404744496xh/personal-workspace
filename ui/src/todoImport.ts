@@ -43,6 +43,35 @@ export interface ResolveOptions {
   openTitles: string[]
 }
 
+// Excel 单元格内的换行会被双引号包住，不能按物理行切批，否则会把一个单元格劈成两条
+export function splitForAiChunks(source: string, maxRows: number): string[] {
+  const text = source.replace(/\r\n?/g, '\n')
+  const rows: string[] = []
+  let start = 0
+  let quoted = false
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '"') {
+      if (quoted && text[index + 1] === '"') index += 1
+      else quoted = !quoted
+      continue
+    }
+    if (char === '\n' && !quoted) {
+      const row = text.slice(start, index)
+      if (row.trim()) rows.push(row)
+      start = index + 1
+    }
+  }
+  const tail = text.slice(start)
+  if (tail.trim()) rows.push(tail)
+
+  const chunks: string[] = []
+  for (let index = 0; index < rows.length; index += maxRows) {
+    chunks.push(rows.slice(index, index + maxRows).join('\n'))
+  }
+  return chunks.length ? chunks : [text]
+}
+
 interface Delimiter {
   label: string
   strong: boolean

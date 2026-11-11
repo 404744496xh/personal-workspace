@@ -4,7 +4,7 @@ import { aiImport, ApiError, createProject, createTodo, updateProject } from '..
 import type { AiImportRow, Project } from '../types'
 import { formatDateTime, messageOf } from '../utils'
 import { toDateTimeLocal } from '../datetime'
-import { parseImport, resolveRows } from '../todoImport'
+import { parseImport, resolveRows, splitForAiChunks } from '../todoImport'
 import Modal from './ui/Modal.vue'
 import Button from './ui/Button.vue'
 import Input from './ui/Input.vue'
@@ -155,21 +155,11 @@ function removeEditRow(index: number): void {
   editRows.value.splice(index, 1)
 }
 
-function splitForAi(source: string): string[] {
-  const lines = source.split('\n')
-  const chunks: string[] = []
-  for (let index = 0; index < lines.length; index += AI_CHUNK_LINES) {
-    const chunk = lines.slice(index, index + AI_CHUNK_LINES).join('\n')
-    if (chunk.trim()) chunks.push(chunk)
-  }
-  return chunks.length ? chunks : [source]
-}
-
 async function runAi(): Promise<void> {
   if (aiBusy.value || importing.value || finished.value || !text.value.trim()) return
   aiBusy.value = true
   aiError.value = ''
-  const chunks = splitForAi(text.value)
+  const chunks = splitForAiChunks(text.value, AI_CHUNK_LINES)
   aiProgress.value = { done: 0, total: chunks.length }
   try {
     const rows: AiImportRow[] = []
