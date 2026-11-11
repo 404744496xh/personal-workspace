@@ -98,6 +98,10 @@ const summary = computed(() => {
   const ok = [...results.value.values()].filter((value) => value === 'ok').length
   return { ok, failed: validRows.value.length - ok }
 })
+const progressPercent = computed(() => {
+  const source = aiBusy.value ? aiProgress.value : progress.value
+  return source.total ? Math.round((source.done / source.total) * 100) : 0
+})
 const contextHint = computed(() => {
   if (props.activeProject === null) return ''
   if (props.activeProject === '') return '当前筛选为未分类，项目列为空时导入到未分类。'
@@ -323,7 +327,7 @@ async function runImport(): Promise<void> {
     </template>
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 复制粘贴：1 列只填待办；2 列按「项目、待办」或「模块、待办」识别，有表头按表头，没有表头时当前筛了项目就按「模块、待办」；3 列为项目、模块、待办；4、5 列可加「创建时间、姓名」。列顺序不必固定，带表头时会按「项目 / 模块 / 待办 / 创建时间 / 姓名」等列名自动对应。列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，并识别人名列，结果可以修改。{{ contextHint }}
+        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
       </p>
       <div
         v-if="helpOpen"
@@ -579,10 +583,10 @@ async function runImport(): Promise<void> {
         >，新建项目 {{ createdProjects }} 个</span>
       </p>
 
-      <div class="flex flex-wrap justify-end gap-2 pt-1">
+      <div class="flex flex-wrap items-center gap-3 pt-1">
         <Button
           variant="secondary"
-          class="ws-import-ai mr-auto"
+          class="ws-import-ai"
           :disabled="importing || finished || aiBusy || !text.trim()"
           @click="runAi"
         >
@@ -592,10 +596,29 @@ async function runImport(): Promise<void> {
               : 'AI 识别中…')
             : 'AI 识别' }}
         </Button>
-        <Button variant="ghost" :disabled="importing" @click="emit('close')">关闭</Button>
-        <Button variant="primary" class="ws-import-submit" :disabled="!canImport" @click="runImport">
-          导入 {{ validRows.length }} 条
-        </Button>
+        <div
+          v-if="aiBusy || importing"
+          class="ws-import-bar min-w-[120px] flex-1"
+          role="progressbar"
+          :aria-label="aiBusy ? 'AI 识别进度' : '导入进度'"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="progressPercent"
+        >
+          <div class="relative h-1.5 w-full overflow-hidden rounded-full bg-black/[0.08] dark:bg-white/[0.12]">
+            <div
+              class="h-full rounded-full bg-[#007AFF] transition-[width] duration-300 ease-[var(--ws-ease)]"
+              :style="{ width: `${progressPercent}%` }"
+            ></div>
+            <div class="ws-import-bar-pulse absolute inset-y-0 left-0 w-1/3 rounded-full bg-gradient-to-r from-transparent via-[#007AFF]/50 to-transparent"></div>
+          </div>
+        </div>
+        <div class="ml-auto flex gap-2">
+          <Button variant="ghost" :disabled="importing" @click="emit('close')">关闭</Button>
+          <Button variant="primary" class="ws-import-submit" :disabled="!canImport" @click="runImport">
+            导入 {{ validRows.length }} 条
+          </Button>
+        </div>
       </div>
     </div>
   </Modal>
