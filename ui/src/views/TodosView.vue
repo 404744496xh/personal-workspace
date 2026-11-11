@@ -817,12 +817,8 @@ async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
     : `已处理 ${targets.length} 条`)
 }
 
-function bulkComplete(): void {
-  const targets = selectedTodos.value.filter((todo) => !todo.completed)
-  if (!targets.length) {
-    showToast('所选待办都已完成')
-    return
-  }
+function completeNow(targets: Todo[]): void {
+  if (!targets.length) return
   const now = new Date().toISOString()
   void runBulk(targets,
     (todo) => ({ ...todo, completed: true, completedAt: now, dismissed: false, dismissedAt: null }),
@@ -835,6 +831,32 @@ function bulkComplete(): void {
       dueDate: todo.dueDate,
       completed: true
     }))
+}
+
+function groupTodos(group: ProjectGroup | ModuleGroup): Todo[] {
+  return 'modules' in group ? group.modules.flatMap((module) => module.todos) : group.todos
+}
+
+function groupOpenTodos(group: ProjectGroup | ModuleGroup): Todo[] {
+  return groupTodos(group).filter((todo) => !todo.completed && !todo.dismissed)
+}
+
+function completeGroup(group: ProjectGroup | ModuleGroup): void {
+  const targets = groupOpenTodos(group)
+  if (!targets.length) {
+    showToast('没有未完成的待办')
+    return
+  }
+  completeNow(targets)
+}
+
+function bulkComplete(): void {
+  const targets = selectedTodos.value.filter((todo) => !todo.completed)
+  if (!targets.length) {
+    showToast('所选待办都已完成')
+    return
+  }
+  completeNow(targets)
 }
 
 function bulkDismiss(): void {
@@ -1489,6 +1511,21 @@ onUnmounted(() => {
             </svg>
           </button>
           <Button
+            v-if="groupOpenTodos(group).length"
+            variant="ghost"
+            size="icon"
+            class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
+            :disabled="bulkBusy"
+            :aria-label="`完成 ${group.title} 的全部待办`"
+            title="全部完成"
+            @click="completeGroup(group)"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4" />
+              <path d="M5.5 8.2l1.7 1.7 3.3-3.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </Button>
+          <Button
             variant="ghost"
             size="icon"
             class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
@@ -1626,6 +1663,21 @@ onUnmounted(() => {
                   <span class="truncate">{{ moduleGroup.label }}</span>
                   <span class="text-[11px] tabular-nums opacity-50">{{ moduleGroup.todos.length }}</span>
                 </button>
+                <Button
+                  v-if="groupOpenTodos(moduleGroup).length"
+                  variant="ghost"
+                  size="icon"
+                  class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
+                  :disabled="bulkBusy"
+                  :aria-label="`完成 ${moduleGroup.label} 的全部待办`"
+                  title="全部完成"
+                  @click="completeGroup(moduleGroup)"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4" />
+                    <path d="M5.5 8.2l1.7 1.7 3.3-3.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
