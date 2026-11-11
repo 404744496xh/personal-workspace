@@ -3,7 +3,9 @@ package asia.xiahan.workspace;
 import asia.xiahan.workspace.dto.AiImportRow;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import org.springframework.http.HttpHeaders;
@@ -40,8 +42,8 @@ public class AiImportService {
             .flatMap(ai -> dataAccess.listProjects(owner)
                 .take(MAX_PROJECTS_IN_PROMPT)
                 .collectList()
-                .flatMap(projects -> callModel(ai, buildPrompt(projects), text)))
-            .map(this::parseRows)
+                .flatMap(projects -> callModel(ai, buildPrompt(projects), text)
+                    .map(output -> parseRows(output, projects))))
             .timeout(TIMEOUT)
             .onErrorMap(TimeoutException.class,
                 error -> new ApiException(HttpStatus.GATEWAY_TIMEOUT, "AI_TIMEOUT",
@@ -160,18 +162,30 @@ public class AiImportService {
             builder.append('\n');
         }
         builder.append("""
-            规则：
-            1. 每行一条待办，不要合并或拆分用户内容，不要臆造。
-            2. 项目、模块可以为空，空表示未分类 / 不分模块。
-            3. 原文的项目或模块如果只是空格、大小写、标点、简称或同义写法不同（例如“工作台”“个人工作台项目”都指已有的“个人工作台”），归并到已有名称。
-            4. 修正明显的列错位、重复表头、多余空行和分隔符问题。
-            5. 只输出 JSON 数组，不要解释或 Markdown 代码块，格式：
+            概念定义：
+            - 项目：一个产品或工作领域，通常是名词短语，例如“讲师库管理”“个人工作台”。
+            - 模块：项目内的功能分区，例如“讲师库”“排课”，比项目范围小。
+            - 待办：可以执行的一件事，通常是动词短语，例如“新增内部讲师”。
+            识别规则：
+            1. 输入可能来自 Excel，列数和分隔符不固定。先判断各列分别是项目、模块还是待办；只有这三类语义参与导入，描述、状态、日期、负责人、优先级等额外列全部忽略。
+            2. 不要臆造待办：每行输出一条，保留原文动作，不要加序号、合并或拆分。
+            3. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；已有项目和模块必须逐字使用下列名称。
+            4. 若原文缺少模块列，可根据待办语义补一个简短模块名（2–8 个字的名称短语，例如“讲师库”）；同一项目的同类待办使用同一个模块名；无法判断时留空。
+            5. 不要把描述性长句当项目或模块，也不要把项目 / 模块名当成待办。
+            6. 长度限制：项目 ≤200 字、模块 ≤32 字、待办 ≤200 字；项目、模块可以为空，空表示未分类 / 不分模块。
+            7. 输入超过 200 行时只输出前 200 行。
+            8. 只输出 JSON 数组，不要解释或 Markdown 代码块，格式：
             [{"项目":"项目名或空字符串","模块":"模块名或空字符串","待办":"待办标题"}]
+            示例：
+            输入（制表符分隔，4 列）：
+            讲师库管理	讲师库	新增内部讲师	新增讲师，可以在红框处输入讲师名字，不用点搜索按钮
+            输出：
+            [{"项目":"讲师库管理","模块":"讲师库","待办":"新增内部讲师"}]
             """);
         return builder.toString();
     }
 
-    private List<AiImportRow> parseRows(String output) {
+    private List<AiImportRow> parseRows(String output, List<WorkspaceProject> projects) {
         var start = output.indexOf('[');
         var end = output.lastIndexOf(']');
         if (start < 0 || end <= start) {
@@ -203,7 +217,39 @@ public class AiImportService {
         if (rows.size() > MAX_ROWS) {
             throw ApiException.badRequest("AI 识别结果超过 " + MAX_ROWS + " 行，请分批导入");
         }
-        return rows;
+        return canonicalize(rows, projects);
+    }
+
+    // AI 偶发只差空格或大小写；能对上已有项目/模块时改回库里的名字，避免多建同名项
+    private static List<AiImportRow> canonicalize(List<AiImportRow> rows,
+        List<WorkspaceProject> projects) {
+        var projectByKey = new HashMap<String, String>();
+        var modulesByProject = new HashMap<String, Map<String, String>>();
+        for (var project : projects) {
+            var spec = project.getSpec();
+            if (spec == null || spec.getTitle() == null) continue;
+            projectByKey.putIfAbsent(key(spec.getTitle()), spec.getTitle());
+            var modules = spec.getModules();
+            if (modules == null || modules.isEmpty()) continue;
+            var moduleByKey = new HashMap<String, String>();
+            for (var module : modules) moduleByKey.putIfAbsent(key(module), module);
+            modulesByProject.put(spec.getTitle(), moduleByKey);
+        }
+        var canonical = new ArrayList<AiImportRow>(rows.size());
+        for (var row : rows) {
+            var project = projectByKey.getOrDefault(key(row.project()), row.project());
+            var module = row.module();
+            var moduleByKey = modulesByProject.get(project);
+            if (moduleByKey != null && !module.isBlank()) {
+                module = moduleByKey.getOrDefault(key(module), module);
+            }
+            canonical.add(new AiImportRow(project, module, row.title()));
+        }
+        return canonical;
+    }
+
+    private static String key(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
     }
 
     private static ApiException badOutput() {
