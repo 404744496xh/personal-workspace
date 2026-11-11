@@ -43,6 +43,16 @@ const aiError = ref('')
 const aiProgress = ref({ done: 0, total: 1 })
 const aiIgnoredProjects = ref<string[]>([])
 const AI_CHUNK_LINES = 40
+const AI_TARGET_AUTO = '__auto__'
+const targetProject = ref(
+  props.activeProject === null
+    ? AI_TARGET_AUTO
+    : props.activeProject === ''
+      ? ''
+      : props.projects.some((project) => project.name === props.activeProject)
+        ? props.activeProject
+        : AI_TARGET_AUTO
+)
 const editing = ref(false)
 const editRows = ref<EditRow[]>([])
 const helpOpen = ref(false)
@@ -65,11 +75,12 @@ async function copyTemplate(): Promise<void> {
   window.setTimeout(() => { copiedHint.value = '' }, 1800)
 }
 
-const resolveOptions = () => ({
+const resolveOptions = (aiImport = false) => ({
   projects: props.projects,
-  activeProject: props.activeProject,
+  activeProject: targetProject.value === AI_TARGET_AUTO ? null : targetProject.value,
   activeModule: props.activeModule,
-  openTitles: props.openTitles
+  openTitles: props.openTitles,
+  aiImport
 })
 
 const preview = computed(() => parseImport(text.value, resolveOptions()))
@@ -83,7 +94,7 @@ const resolvedEdit = computed(() => resolveRows(
     createdAt: row.createdAtLocal || null,
     reporter: row.reporter.trim()
   })),
-  resolveOptions()
+  resolveOptions(true)
 ))
 const activePreview = computed(() => editing.value ? resolvedEdit.value : preview.value)
 const showCreatedColumn = computed(() => activePreview.value.rows.some((row) => row.createdAt))
@@ -103,16 +114,18 @@ const progressPercent = computed(() => {
 const ignoredProjectTitles = computed(() =>
   editing.value ? aiIgnoredProjects.value : preview.value.ignoredProjectTitles)
 const lockedProject = computed(() => {
-  if (props.activeProject === null) return null
-  if (props.activeProject === '') return ''
-  return props.projects.find((project) => project.name === props.activeProject)?.title.trim() ?? ''
+  if (targetProject.value === AI_TARGET_AUTO) return null
+  if (targetProject.value === '') return ''
+  return props.projects.find((project) => project.name === targetProject.value)?.title.trim() ?? ''
 })
 const contextHint = computed(() => {
-  if (props.activeProject === null) return ''
-  if (props.activeProject === '') return '当前筛选为未分类：忽略粘贴里的项目列，全部导入为未分类。'
-  const title = props.projects.find((project) => project.name === props.activeProject)?.title
-  const moduleHint = props.activeModule ? `、模块列为空时归入「${props.activeModule}」` : ''
-  return `当前筛选为项目「${title ?? ''}」：忽略粘贴里的项目列，全部导入到该项目${moduleHint}。`
+  if (targetProject.value === AI_TARGET_AUTO) return ''
+  if (targetProject.value === '') return '已选择「未分类」：忽略粘贴里的项目列，全部导入为未分类。'
+  const title = props.projects.find((project) => project.name === targetProject.value)?.title
+  const moduleHint = props.activeModule && targetProject.value === props.activeProject
+    ? `、模块列为空时归入「${props.activeModule}」`
+    : ''
+  return `已选择项目「${title ?? ''}」：忽略粘贴里的项目列，全部导入到该项目${moduleHint}。`
 })
 const projectTitles = computed(() => props.projects.map((project) => project.title))
 
@@ -121,6 +134,18 @@ watch(text, () => {
   if (!editing.value) return
   editing.value = false
   aiError.value = ''
+})
+
+watch(targetProject, (value) => {
+  if (!editing.value || value === AI_TARGET_AUTO) return
+  const title = value === ''
+    ? ''
+    : props.projects.find((project) => project.name === value)?.title.trim() ?? ''
+  for (const row of editRows.value) {
+    row.project = title
+    if (!title) row.module = ''
+  }
+  aiIgnoredProjects.value = []
 })
 
 function displayProject(row: { project: string }): string {
@@ -199,14 +224,13 @@ async function runAi(): Promise<void> {
       let project = row.project.trim()
       let module = row.module.trim()
       if (locked !== null) {
-        // 当前筛选决定项目，忽略粘贴里的项目列；未分类时不保留模块
+        // 已选定导入项目，忽略粘贴里的项目列；未分类时不保留模块
         project = locked
         if (!locked) module = ''
       } else if (project && !knownProjects.has(project)) {
-        // 项目不导入：对不上的项目名丢弃，按未分类处理；模块随项目一起清掉
+        // 项目不导入：对不上的项目名丢弃，按未分类处理；模块留着，改选导入项目后可直接沿用
         if (!ignored.includes(project)) ignored.push(project)
         project = ''
-        module = ''
       }
       return {
         project,
@@ -330,17 +354,36 @@ async function runImport(): Promise<void> {
     </template>
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。项目只匹配已有项目（不会新建），对不上的归入未分类；列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
+        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。可选下方「导入到项目」整批指定项目；按内容匹配时只匹配已有项目（不会新建），对不上的归入未分类。列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
       </p>
+      <div class="flex flex-wrap items-center gap-2">
+        <label class="ws-import-target-label text-[12px] text-[#6e6e73] dark:text-[#98989d]" for="ws-import-target">
+          导入到项目
+        </label>
+        <Select
+          id="ws-import-target"
+          v-model="targetProject"
+          class="ws-import-target w-[240px]"
+          :disabled="importing || finished || aiBusy"
+        >
+          <option :value="AI_TARGET_AUTO">按内容匹配</option>
+          <option value="">未分类</option>
+          <option v-for="project in projects" :key="project.name" :value="project.name">{{ project.title }}</option>
+        </Select>
+        <span
+          v-if="targetProject !== AI_TARGET_AUTO && targetProject !== ''"
+          class="text-[11px] text-[#6e6e73] dark:text-[#98989d]"
+        >AI 导入时每条待办都会带上模块，没有模块名会按语义自动起一个。</span>
+      </div>
       <div
         v-if="helpOpen"
         class="ws-import-help-panel max-h-[420px] overflow-y-auto rounded-xl border border-black/[0.06] bg-black/[0.02] p-3 text-[12px] leading-relaxed text-[#3a3a3c] dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#d1d1d6]"
       >
         <div class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">列规则</div>
         <ul class="mt-1 list-disc space-y-0.5 pl-4">
-          <li>1 列：全部作为待办标题；当前筛了项目 / 模块就归入当前筛选。</li>
-          <li>在项目筛选下导入时，粘贴里的项目列会被忽略，全部归入当前项目（模块列仍按内容新建或复用）；未分类筛选下全部进未分类。</li>
-          <li>2 列：有表头按表头；无表头时没筛项目按「项目、待办」，筛了项目按「模块、待办」。</li>
+          <li>1 列：全部作为待办标题；选了导入项目就归入所选项目。</li>
+          <li>选「导入到项目」后，粘贴 / AI 返回的项目列会被忽略，全部归入所选项目（模块列仍按内容新建或复用）；选未分类则全部进未分类。默认按内容匹配，也可以手动指定。</li>
+          <li>2 列：有表头按表头；无表头时按内容匹配为「项目、待办」，选定项目后按「模块、待办」。</li>
           <li>3 列：默认「项目、模块、待办」，单元格可空。</li>
           <li>4 列：默认「项目、模块、待办、创建时间」。</li>
           <li>5 列：默认「项目、模块、待办、创建时间、姓名」。</li>
@@ -351,6 +394,7 @@ async function runImport(): Promise<void> {
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
           <li>项目只匹配已有项目（不会自动创建），对不上的归入未分类；模块可以由 AI 新建，已有同名模块会复用；每个项目最多 20 个模块，一次最多 500 行。</li>
+          <li>AI 导入时模块必填：模型没给模块名时会按语义自动起一个；选定导入项目后，每条待办都必须有模块。</li>
           <li>AI 识别会把功能名与问题描述合并成能独立看懂的待办标题；标题说清楚了详情就留空，详情只放标题之外的补充信息，可以适度总结提炼、分点排版，意思不变。也会按语义归并项目 / 模块，并识别创建时间、姓名与描述列，负责人、处理人不算姓名。内容较多时会自动分批识别，单批失败自动重试一次，进度显示在按钮上。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">

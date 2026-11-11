@@ -39,6 +39,8 @@ export interface ResolveOptions {
   activeProject: string | null
   activeModule: string | null
   openTitles: string[]
+  // AI 结果：有项目就必须有模块；项目未匹配时模块无处挂靠，直接丢弃
+  aiImport?: boolean
 }
 
 // Excel 单元格内的换行会被双引号包住，不能按物理行切批，否则会把一个单元格劈成两条
@@ -405,8 +407,15 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
       module = options.activeModule
     }
     if (!error && module) {
-      if (!projectTitle) error = '模块需要项目（项目列不能为空）'
-      else if (module.length > MAX_MODULE_LENGTH) error = `模块名称超过 ${MAX_MODULE_LENGTH} 个字符`
+      if (!projectTitle) {
+        if (options.aiImport) module = ''
+        else error = '模块需要项目（项目列不能为空）'
+      } else if (module.length > MAX_MODULE_LENGTH) {
+        error = `模块名称超过 ${MAX_MODULE_LENGTH} 个字符`
+      }
+    }
+    if (!error && options.aiImport && projectName && !module) {
+      error = '模块不能为空，请补一个模块名'
     }
 
     let newModule = false
