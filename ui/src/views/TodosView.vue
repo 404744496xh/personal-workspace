@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   ApiError,
   createProject,
@@ -102,6 +102,14 @@ const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
 const selected = ref<Set<string>>(new Set())
+const bulkBusy = ref(false)
+const bulkDeleteOpen = ref(false)
+const moveOpen = ref(false)
+const moveProject = ref('')
+const moveModule = ref('')
+watch(moveProject, () => {
+  moveModule.value = ''
+})
 const showFinished = ref(
   todosTarget?.project
     ? (cachedProjects ?? []).some((project) =>
@@ -178,6 +186,8 @@ const activeProjectTitle = computed(() => {
   if (activeProject.value === '') return '未分类'
   return projects.value.find((project) => project.name === activeProject.value)?.title ?? '未分类'
 })
+const moveModules = computed(() =>
+  projects.value.find((project) => project.name === moveProject.value)?.modules ?? [])
 const displayedTotal = computed(() =>
   hasFilters.value || hiddenTodoCount.value + dismissedCount.value > 0
     ? visibleItems.value.length
@@ -766,6 +776,140 @@ async function copySelected(): Promise<void> {
   showToast(ok ? `已复制 ${todos.length} 条待办` : '复制失败，请手动选择文本')
 }
 
+async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
+  send: (todo: Todo) => Promise<Todo>): Promise<void> {
+  if (!targets.length || bulkBusy.value) return
+  bulkBusy.value = true
+  const snapshot = new Map(items.value.map((todo) => [todo.name, todo]))
+  const names = new Set(targets.map((todo) => todo.name))
+  items.value = items.value.map((todo) => names.has(todo.name) ? optimistic(todo) : todo)
+  let failed = 0
+  for (const todo of targets) {
+    try {
+      const updated = await send(todo)
+      const index = items.value.findIndex((item) => item.name === updated.name)
+      if (index >= 0) items.value[index] = updated
+    } catch (err) {
+      failed += 1
+      const index = items.value.findIndex((item) => item.name === todo.name)
+      const before = snapshot.get(todo.name)
+      if (index >= 0 && before) items.value[index] = before
+      if (err instanceof ApiError && err.status === 401) {
+        emit('unauthorized')
+        break
+      }
+    }
+  }
+  bulkBusy.value = false
+  selected.value = new Set()
+  persistCache()
+  showToast(failed
+    ? `已处理 ${targets.length - failed} 条，${failed} 条失败`
+    : `已处理 ${targets.length} 条`)
+}
+
+function bulkComplete(): void {
+  const targets = selectedTodos.value.filter((todo) => !todo.completed)
+  if (!targets.length) {
+    showToast('所选待办都已完成')
+    return
+  }
+  const now = new Date().toISOString()
+  void runBulk(targets,
+    (todo) => ({ ...todo, completed: true, completedAt: now, dismissed: false, dismissedAt: null }),
+    (todo) => updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: todo.priority,
+      project: todo.project,
+      module: todo.module,
+      dueDate: todo.dueDate,
+      completed: true
+    }))
+}
+
+function bulkDismiss(): void {
+  const targets = selectedTodos.value.filter((todo) => !todo.dismissed)
+  if (!targets.length) {
+    showToast('所选待办都已不用处理')
+    return
+  }
+  const now = new Date().toISOString()
+  void runBulk(targets,
+    (todo) => ({ ...todo, dismissed: true, dismissedAt: now, completed: false, completedAt: null }),
+    (todo) => updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: todo.priority,
+      project: todo.project,
+      module: todo.module,
+      dueDate: todo.dueDate,
+      completed: false,
+      dismissed: true
+    }))
+}
+
+async function applyBulkMove(): Promise<void> {
+  const targets = selectedTodos.value
+  if (!targets.length || bulkBusy.value) return
+  const projectKey = moveProject.value || null
+  const moduleKey = projectKey ? (moveModule.value || null) : null
+  moveOpen.value = false
+  try {
+    await ensureProjectModule(projectKey, moduleKey)
+  } catch (err) {
+    handleError(err)
+    return
+  }
+  void runBulk(targets,
+    (todo) => ({ ...todo, project: projectKey, module: moduleKey }),
+    (todo) => updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: todo.priority,
+      project: projectKey,
+      module: moduleKey,
+      dueDate: todo.dueDate,
+      completed: todo.completed
+    }))
+}
+
+async function removeBulkConfirmed(): Promise<void> {
+  const targets = selectedTodos.value
+  bulkDeleteOpen.value = false
+  if (!targets.length || bulkBusy.value) return
+  bulkBusy.value = true
+  const snapshot = items.value.slice()
+  const snapshotTotal = total.value
+  const names = new Set(targets.map((todo) => todo.name))
+  items.value = items.value.filter((todo) => !names.has(todo.name))
+  total.value = Math.max(0, total.value - targets.length)
+  const deleted = new Set<string>()
+  let failed = 0
+  for (const todo of targets) {
+    try {
+      await deleteTodo(todo.name)
+      deleted.add(todo.name)
+    } catch (err) {
+      failed += 1
+      if (err instanceof ApiError && err.status === 401) {
+        emit('unauthorized')
+        break
+      }
+    }
+  }
+  if (failed) {
+    items.value = snapshot.filter((todo) => !deleted.has(todo.name))
+    total.value = snapshotTotal - deleted.size
+  }
+  bulkBusy.value = false
+  selected.value = new Set()
+  persistCache()
+  showToast(failed
+    ? `已删除 ${deleted.size} 条，${failed} 条失败`
+    : `已删除 ${targets.length} 条`)
+}
+
 function startRenameModule(projectKey: string, from: string): void {
   if (!projectKey) return
   renaming.value = { project: projectKey, from, text: from }
@@ -1139,6 +1283,7 @@ onUnmounted(() => {
           type="checkbox"
           class="ws-select-all h-5 w-5 accent-[#007AFF]"
           :checked="allSelected"
+          :disabled="bulkBusy"
           :indeterminate.prop="selectedTodos.length > 0 && !allSelected"
           aria-label="全选当前列表"
           @change="toggleSelectAll"
@@ -1148,11 +1293,36 @@ onUnmounted(() => {
       <span class="ws-select-count text-[13px] tabular-nums text-[#6e6e73] dark:text-[#98989d]">
         已选 {{ selectedTodos.length }} 项
       </span>
-      <div class="ml-auto flex items-center gap-2">
-        <Button variant="ghost" size="sm" :disabled="!selectedTodos.length" @click="clearSelected">
+      <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+        <Button variant="ghost" size="sm" :disabled="!selectedTodos.length || bulkBusy" @click="clearSelected">
           清除选择
         </Button>
-        <Button variant="primary" size="sm" :disabled="!selectedTodos.length" @click="copySelected">
+        <Button variant="ghost" size="sm" :disabled="bulkBusy" title="将所选待办标记为已完成" @click="bulkComplete">
+          完成
+        </Button>
+        <Button variant="ghost" size="sm" :disabled="bulkBusy" title="将所选待办标记为不用处理" @click="bulkDismiss">
+          不用处理
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          :disabled="bulkBusy"
+          :aria-expanded="moveOpen"
+          title="把所选待办移到别的项目或模块"
+          @click="moveOpen = !moveOpen"
+        >
+          移动
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="text-[#FF3B30]/75 hover:text-[#FF3B30]"
+          :disabled="bulkBusy"
+          @click="bulkDeleteOpen = true"
+        >
+          删除
+        </Button>
+        <Button variant="primary" size="sm" :disabled="!selectedTodos.length || bulkBusy" @click="copySelected">
           <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4" />
             <path d="M10.5 5.5V4a1.5 1.5 0 00-1.5-1.5H4A1.5 1.5 0 002.5 4v5A1.5 1.5 0 004 10.5h1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
@@ -1160,6 +1330,25 @@ onUnmounted(() => {
           复制为文本
         </Button>
       </div>
+    </div>
+
+    <div
+      v-if="selecting && moveOpen"
+      class="ws-bulk-move mb-4 flex flex-wrap items-center gap-2 rounded-[18px] border border-black/[0.06] bg-white/[0.55] px-4 py-3 text-[12px] text-[#6e6e73] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#98989d]"
+    >
+      <span class="font-medium">移动 {{ selectedTodos.length }} 条到</span>
+      <Select v-model="moveProject" class="w-[160px]" aria-label="目标项目">
+        <option value="">未分类</option>
+        <option v-for="project in projects" :key="project.name" :value="project.name">
+          {{ project.title }}
+        </option>
+      </Select>
+      <Select v-model="moveModule" class="w-[140px]" :disabled="!moveProject" aria-label="目标模块">
+        <option value="">不分模块</option>
+        <option v-for="name in moveModules" :key="name" :value="name">{{ name }}</option>
+      </Select>
+      <Button variant="primary" size="sm" :disabled="bulkBusy" @click="applyBulkMove">确定</Button>
+      <Button variant="ghost" size="sm" :disabled="bulkBusy" @click="moveOpen = false">取消</Button>
     </div>
 
     <div v-if="activeProject !== null" class="ws-filter-bar mb-4 flex flex-wrap items-center gap-2">
@@ -1238,6 +1427,7 @@ onUnmounted(() => {
               type="checkbox"
               class="ws-select h-5 w-5 accent-[#007AFF]"
               :checked="groupAllSelected(todoNamesOfGroup(group))"
+              :disabled="bulkBusy"
               :indeterminate.prop="groupPartiallySelected(todoNamesOfGroup(group))"
               :aria-label="`全选 ${group.title} 的待办`"
               @change="toggleSelectGroup(todoNamesOfGroup(group))"
@@ -1394,6 +1584,7 @@ onUnmounted(() => {
                     type="checkbox"
                     class="ws-select h-5 w-5 accent-[#007AFF]"
                     :checked="groupAllSelected(todoNamesOfGroup(moduleGroup))"
+                    :disabled="bulkBusy"
                     :indeterminate.prop="groupPartiallySelected(todoNamesOfGroup(moduleGroup))"
                     :aria-label="`全选 ${moduleGroup.label} 的待办`"
                     @change="toggleSelectGroup(todoNamesOfGroup(moduleGroup))"
@@ -1488,6 +1679,7 @@ onUnmounted(() => {
                   class="ws-select h-5 w-5 accent-[#007AFF]"
                   type="checkbox"
                   :checked="selected.has(todo.name)"
+                  :disabled="bulkBusy"
                   :aria-label="`选择 ${todo.title}`"
                   @change="toggleSelect(todo.name)"
                 />
@@ -1500,7 +1692,7 @@ onUnmounted(() => {
                   class="ws-check h-5 w-5 accent-[#007AFF]"
                   type="checkbox"
                   :checked="todo.completed"
-                  :disabled="busy === todo.name"
+                  :disabled="busy === todo.name || bulkBusy"
                   :aria-label="`标记 ${todo.title} 完成`"
                   @change="toggle(todo)"
                 />
@@ -1740,6 +1932,15 @@ onUnmounted(() => {
       confirm-text="删除"
       @confirm="removeConfirmed"
       @close="pendingDelete = null"
+    />
+
+    <ConfirmDialog
+      v-if="bulkDeleteOpen"
+      title="删除待办"
+      :message="`确定删除选中的 ${selectedTodos.length} 条待办？删除后不可恢复。`"
+      confirm-text="删除"
+      @confirm="removeBulkConfirmed"
+      @close="bulkDeleteOpen = false"
     />
 
     <div
