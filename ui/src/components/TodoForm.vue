@@ -27,6 +27,7 @@ const priority = ref<Priority>(props.todo?.priority ?? 'MEDIUM')
 const project = ref(props.todo?.project ?? props.defaultProject ?? '')
 const module = ref(props.todo?.module ?? props.defaultModule ?? '')
 const dueDate = ref(props.todo?.dueDate ?? '')
+const reporter = ref(props.todo?.reporter ?? '')
 const createdAt = ref(toDateTimeLocal(props.todo?.createdAt)
   || toDateTimeLocal(new Date().toISOString()))
 const completed = ref(props.todo?.completed ?? false)
@@ -85,6 +86,7 @@ function submit(): void {
     priority: priority.value,
     project: project.value || null,
     module: module.value || null,
+    reporter: reporter.value.trim() || null,
     dueDate: dueDate.value || null,
     completed: completed.value,
     createdAt: createdAtIso
@@ -182,14 +184,25 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </label>
         </div>
 
-        <label class="ws-field flex flex-col gap-1.5">
-          <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">创建时间</span>
-          <input
-            v-model="createdAt"
-            class="ws-created-input h-11 w-full rounded-xl border border-black/[0.08] bg-white/80 px-3.5 text-[14px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:[color-scheme:dark]"
-            type="datetime-local"
-          />
-        </label>
+        <div class="ws-field-row grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label class="ws-field flex min-w-0 flex-col gap-1.5">
+            <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">姓名</span>
+            <Input
+              v-model.trim="reporter"
+              maxlength="64"
+              autocomplete="off"
+              placeholder="提出人姓名，例如 张三"
+            />
+          </label>
+          <label class="ws-field flex min-w-0 flex-col gap-1.5">
+            <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">创建时间</span>
+            <input
+              v-model="createdAt"
+              class="ws-created-input h-11 w-full rounded-xl border border-black/[0.08] bg-white/80 px-3.5 text-[14px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:[color-scheme:dark]"
+              type="datetime-local"
+            />
+          </label>
+        </div>
 
         <label
           class="ws-check-row flex min-h-11 items-center gap-3 text-[13px] text-[#6e6e73] dark:text-[#98989d]"

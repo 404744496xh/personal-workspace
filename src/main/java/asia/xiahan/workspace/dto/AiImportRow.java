@@ -4,6 +4,7 @@ public record AiImportRow(
     String project,
     String module,
     String title,
-    String createdAt
+    String createdAt,
+    String reporter
 ) {
 }

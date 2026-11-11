@@ -17,6 +17,7 @@ export interface Todo {
   priority: Priority
   project: string | null
   module: string | null
+  reporter: string | null
   dueDate: string | null
   completed: boolean
   completedAt: string | null
@@ -38,6 +39,7 @@ export interface TodoPayload {
   priority: Priority
   project: string | null
   module: string | null
+  reporter?: string | null
   dueDate: string | null
   completed: boolean
   dismissed?: boolean
@@ -120,6 +122,7 @@ export interface AiImportRow {
   module: string
   title: string
   createdAt?: string | null
+  reporter?: string | null
 }
 
 export interface AiImportResponse {
@@ -133,6 +136,7 @@ export interface BackupTodo {
   priority: Priority | null
   project: string | null
   module: string | null
+  reporter: string | null
   dueDate: string | null
   completed: boolean | null
   completedAt: string | null

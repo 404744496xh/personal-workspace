@@ -359,6 +359,7 @@ public class WorkspaceDataAccess {
                         todo.getSpec().getPriority(),
                         todo.getSpec().getProject(),
                         todo.getSpec().getModule(),
+                        todo.getSpec().getReporter(),
                         todo.getSpec().getDueDate(),
                         todo.getSpec().isCompleted(),
                         todo.getSpec().getCompletedAt(),
@@ -428,6 +429,7 @@ public class WorkspaceDataAccess {
             spec.setPriority(source.priority() == null ? "MEDIUM" : source.priority());
             spec.setProject(mappedProject);
             spec.setModule(normalizeModule(mappedProject, source.module()));
+            spec.setReporter(trimToNull(source.reporter()));
             spec.setDueDate(normalizeDueDate(source.dueDate()));
             var dismissed = Boolean.TRUE.equals(source.dismissed());
             var completed = !dismissed && Boolean.TRUE.equals(source.completed());
@@ -568,6 +570,9 @@ public class WorkspaceDataAccess {
         spec.setPriority(request.priority());
         spec.setProject(normalizeProject(request.project()));
         spec.setModule(normalizeModule(request.project(), request.module()));
+        if (creating || request.reporter() != null) {
+            spec.setReporter(trimToNull(request.reporter()));
+        }
         spec.setDueDate(normalizeDueDate(request.dueDate()));
         if (creating || request.createdAt() != null) {
             spec.setCreatedAt(normalizeCreatedAt(request.createdAt()));

@@ -544,6 +544,7 @@ async function quickCreate(projectKey: string, moduleName: string,
     priority: 'MEDIUM',
     project: projectKey || null,
     module: projectKey ? (moduleName || null) : null,
+    reporter: null,
     dueDate: null,
     completed: false
   }
@@ -744,6 +745,7 @@ function buildCopyText(todos: Todo[]): string {
     const marker = todo.completed ? '[x]' : todo.dismissed ? '[-]' : '[ ]'
     let line = `${marker} ${todo.title}（${priorityLabel(todo.priority)}） — ${projectTitleOf(todo)}`
     if (todo.module) line += ` / ${todo.module}`
+    if (todo.reporter) line += ` · 姓名 ${todo.reporter}`
     if (todo.dueDate) line += ` · 截止 ${todo.dueDate}`
     if (todo.dismissed) line += ' · 不用处理'
     if (todo.completedAt) line += ` · 完成于 ${formatDateTime(todo.completedAt)}`
@@ -828,6 +830,7 @@ function completeNow(targets: Todo[]): void {
       priority: todo.priority,
       project: todo.project,
       module: todo.module,
+      reporter: todo.reporter,
       dueDate: todo.dueDate,
       completed: true
     }))
@@ -874,6 +877,7 @@ function bulkDismiss(): void {
       priority: todo.priority,
       project: todo.project,
       module: todo.module,
+      reporter: todo.reporter,
       dueDate: todo.dueDate,
       completed: false,
       dismissed: true
@@ -900,6 +904,7 @@ async function applyBulkMove(): Promise<void> {
       priority: todo.priority,
       project: projectKey,
       module: moduleKey,
+      reporter: todo.reporter,
       dueDate: todo.dueDate,
       completed: todo.completed
     }))
@@ -1005,6 +1010,7 @@ async function toggle(todo: Todo): Promise<void> {
     priority: todo.priority,
     project: todo.project,
     module: todo.module,
+    reporter: todo.reporter,
     dueDate: todo.dueDate,
     completed: !todo.completed
   }
@@ -1041,6 +1047,7 @@ async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
     priority: todo.priority,
     project: todo.project,
     module: todo.module,
+    reporter: todo.reporter,
     dueDate: todo.dueDate,
     completed: dismissed ? false : todo.completed,
     dismissed
@@ -1798,9 +1805,10 @@ onUnmounted(() => {
                   class="ws-todo-detail line-clamp-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
                 >{{ todo.detail }}</p>
                 <div
-                  v-if="todo.dueDate || todo.completedAt || todo.createdAt"
+                  v-if="todo.reporter || todo.dueDate || todo.completedAt || todo.createdAt"
                   class="ws-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]"
                 >
+                  <span v-if="todo.reporter" class="ws-reporter">姓名 {{ todo.reporter }}</span>
                   <span
                     v-if="todo.dueDate"
                     class="ws-due"

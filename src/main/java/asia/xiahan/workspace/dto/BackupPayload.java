@@ -22,6 +22,7 @@ public record BackupPayload(
         @Pattern(regexp = "HIGH|MEDIUM|LOW") String priority,
         @Size(max = 64) String project,
         @Size(max = 32) String module,
+        @Size(max = 64) String reporter,
         @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String dueDate,
         Boolean completed,
         @Size(max = 40) String completedAt,

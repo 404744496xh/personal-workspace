@@ -16,6 +16,7 @@ interface EditRow {
   module: string
   title: string
   createdAtLocal: string
+  reporter: string
 }
 
 const props = defineProps<{
@@ -77,12 +78,14 @@ const resolvedEdit = computed(() => resolveRows(
     project: row.project.trim(),
     module: row.module.trim(),
     title: row.title.trim(),
-    createdAt: row.createdAtLocal || null
+    createdAt: row.createdAtLocal || null,
+    reporter: row.reporter.trim()
   })),
   resolveOptions()
 ))
 const activePreview = computed(() => editing.value ? resolvedEdit.value : preview.value)
 const showCreatedColumn = computed(() => activePreview.value.rows.some((row) => row.createdAt))
+const showReporterColumn = computed(() => activePreview.value.rows.some((row) => row.reporter))
 const validRows = computed(() => activePreview.value.rows.filter((row) => !row.error))
 const errorRows = computed(() => activePreview.value.rows.filter((row) => row.error))
 const canImport = computed(() => !importing.value && !finished.value && !aiBusy.value
@@ -158,7 +161,8 @@ async function runAi(): Promise<void> {
       project: row.project.trim(),
       module: row.module.trim(),
       title: row.title.trim(),
-      createdAtLocal: toDateTimeLocal(row.createdAt)
+      createdAtLocal: toDateTimeLocal(row.createdAt),
+      reporter: (row.reporter ?? '').trim()
     }))
     editing.value = true
   } catch (err) {
@@ -256,7 +260,8 @@ async function runImport(): Promise<void> {
           module: row.module || null,
           dueDate: null,
           completed: false,
-          createdAt: row.createdAt ?? null
+          createdAt: row.createdAt ?? null,
+          reporter: row.reporter || null
         })
         results.value.set(row.line, 'ok')
       } catch (err) {
@@ -299,7 +304,7 @@ async function runImport(): Promise<void> {
     </template>
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 复制粘贴：1 列只填待办；2 列按「项目、待办」或「模块、待办」识别，有表头按表头，没有表头时当前筛了项目就按「模块、待办」；3 列为项目、模块、待办；4 列或带表头时可在最后加「创建时间」。列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，结果可以修改。{{ contextHint }}
+        从 Excel 复制粘贴：1 列只填待办；2 列按「项目、待办」或「模块、待办」识别，有表头按表头，没有表头时当前筛了项目就按「模块、待办」；3 列为项目、模块、待办；4、5 列可加「创建时间、姓名」。列顺序不必固定，带表头时会按「项目 / 模块 / 待办 / 创建时间 / 姓名」等列名自动对应。列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，并识别人名列，结果可以修改。{{ contextHint }}
       </p>
       <div
         v-if="helpOpen"
@@ -311,14 +316,15 @@ async function runImport(): Promise<void> {
           <li>2 列：有表头按表头；无表头时没筛项目按「项目、待办」，筛了项目按「模块、待办」。</li>
           <li>3 列：默认「项目、模块、待办」，单元格可空。</li>
           <li>4 列：默认「项目、模块、待办、创建时间」。</li>
-          <li>表头可显式写明列含义，例如「项目、待办、创建时间」；表头行会自动跳过。</li>
+          <li>5 列：默认「项目、模块、待办、创建时间、姓名」。</li>
+          <li>表头可显式写明列含义并调整顺序，例如「姓名、项目、待办、创建时间」；支持「姓名 / 提出人 / 反馈人 / 提单人 / 提交人 / 报告人 / 谁提的」作为姓名列。表头行会自动跳过。</li>
         </ul>
         <div class="mt-2 font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">格式说明</div>
         <ul class="mt-1 list-disc space-y-0.5 pl-4">
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
           <li>项目不存在时可自动创建；每个项目最多 20 个模块，一次最多 500 行。</li>
-          <li>AI 识别会按语义归并项目 / 模块，并识别存在的创建时间。</li>
+          <li>AI 识别会按语义归并项目 / 模块，并识别创建时间与姓名列；负责人、处理人不算姓名。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
           <span class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">模板</span>
@@ -331,7 +337,7 @@ async function runImport(): Promise<void> {
       <Textarea
         v-model="text"
         class="ws-import-text min-h-[150px] font-mono text-[13px]"
-        placeholder="项目	模块	待办	创建时间"
+        placeholder="项目	模块	待办	创建时间	姓名"
         aria-label="粘贴待办数据"
         :disabled="importing || finished"
       />
@@ -388,6 +394,7 @@ async function runImport(): Promise<void> {
                 <th class="px-3 py-2 font-medium">模块</th>
                 <th class="px-3 py-2 font-medium">待办</th>
                 <th class="px-3 py-2 font-medium">创建时间</th>
+                <th class="px-3 py-2 font-medium">姓名</th>
                 <th class="px-3 py-2 font-medium">状态</th>
                 <th class="px-2 py-2"></th>
               </tr>
@@ -443,6 +450,15 @@ async function runImport(): Promise<void> {
                     :disabled="importing || finished"
                   />
                 </td>
+                <td class="px-2 py-1.5">
+                  <Input
+                    v-model="row.reporter"
+                    class="ws-import-cell w-[110px]"
+                    maxlength="64"
+                    :aria-label="`第 ${index + 1} 行姓名`"
+                    :disabled="importing || finished"
+                  />
+                </td>
                 <td
                   class="max-w-[160px] truncate px-3 py-1.5"
                   :class="editError(index) ? 'text-[#FF3B30]' : 'text-[#6e6e73] dark:text-[#98989d]'"
@@ -479,6 +495,7 @@ async function runImport(): Promise<void> {
                 <th class="px-3 py-2 font-medium">模块</th>
                 <th class="px-3 py-2 font-medium">待办</th>
                 <th v-if="showCreatedColumn" class="px-3 py-2 font-medium">创建时间</th>
+                <th v-if="showReporterColumn" class="px-3 py-2 font-medium">姓名</th>
                 <th class="px-3 py-2 font-medium">状态</th>
               </tr>
             </thead>
@@ -497,6 +514,9 @@ async function runImport(): Promise<void> {
                 <td class="max-w-[260px] truncate px-3 py-1.5" :title="row.title">{{ row.title || '—' }}</td>
                 <td v-if="showCreatedColumn" class="ws-import-created whitespace-nowrap px-3 py-1.5 tabular-nums">
                   {{ formatDateTime(row.createdAt) || '—' }}
+                </td>
+                <td v-if="showReporterColumn" class="ws-import-reporter max-w-[120px] truncate px-3 py-1.5" :title="row.reporter">
+                  {{ row.reporter || '—' }}
                 </td>
                 <td
                   class="max-w-[220px] truncate px-3 py-1.5"

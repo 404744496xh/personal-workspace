@@ -5,6 +5,7 @@ export const MAX_IMPORT_ROWS = 500
 export const MAX_PROJECT_MODULES = 20
 export const MAX_MODULE_LENGTH = 32
 export const MAX_TITLE_LENGTH = 200
+export const MAX_REPORTER_LENGTH = 64
 
 export interface ParsedRow {
   line: number
@@ -12,6 +13,7 @@ export interface ParsedRow {
   module: string
   title: string
   createdAt: string | null
+  reporter: string
 }
 
 export interface ImportRow extends ParsedRow {
@@ -131,47 +133,40 @@ function isBlankRow(cells: string[] | undefined): boolean {
   return !cells || cells.every((cell) => cell.trim() === '')
 }
 
-type ColumnRole = 'project' | 'module' | 'title' | 'createdAt'
+type ColumnRole = 'project' | 'module' | 'title' | 'createdAt' | 'reporter'
 
-interface HeaderDef {
-  width: number
-  values: string[]
-  roles: ColumnRole[]
+const HEADER_ALIASES: Record<string, ColumnRole> = {
+  项目: 'project',
+  project: 'project',
+  模块: 'module',
+  module: 'module',
+  待办: 'title',
+  待办标题: 'title',
+  标题: 'title',
+  todo: 'title',
+  title: 'title',
+  创建时间: 'createdAt',
+  创建日期: 'createdAt',
+  创建于: 'createdAt',
+  createdat: 'createdAt',
+  created: 'createdAt',
+  姓名: 'reporter',
+  提出人: 'reporter',
+  反馈人: 'reporter',
+  提单人: 'reporter',
+  提交人: 'reporter',
+  报告人: 'reporter',
+  谁提的: 'reporter',
+  提出者: 'reporter',
+  reporter: 'reporter'
 }
 
-const HEADERS: HeaderDef[] = [
-  { width: 1, values: ['待办'], roles: ['title'] },
-  { width: 1, values: ['待办标题'], roles: ['title'] },
-  { width: 1, values: ['标题'], roles: ['title'] },
-  { width: 1, values: ['todo'], roles: ['title'] },
-  { width: 2, values: ['项目', '待办'], roles: ['project', 'title'] },
-  { width: 2, values: ['项目', '待办标题'], roles: ['project', 'title'] },
-  { width: 2, values: ['project', 'todo'], roles: ['project', 'title'] },
-  { width: 2, values: ['模块', '待办'], roles: ['module', 'title'] },
-  { width: 2, values: ['模块', '待办标题'], roles: ['module', 'title'] },
-  { width: 2, values: ['module', 'todo'], roles: ['module', 'title'] },
-  { width: 2, values: ['项目', '模块'], roles: ['project', 'module'] },
-  { width: 2, values: ['project', 'module'], roles: ['project', 'module'] },
-  { width: 3, values: ['项目', '模块', '待办'], roles: ['project', 'module', 'title'] },
-  { width: 3, values: ['项目', '模块', '待办标题'], roles: ['project', 'module', 'title'] },
-  { width: 3, values: ['project', 'module', 'todo'], roles: ['project', 'module', 'title'] },
-  { width: 3, values: ['项目', '待办', '创建时间'], roles: ['project', 'title', 'createdAt'] },
-  { width: 3, values: ['项目', '待办标题', '创建时间'], roles: ['project', 'title', 'createdAt'] },
-  { width: 3, values: ['project', 'todo', 'createdAt'], roles: ['project', 'title', 'createdAt'] },
-  { width: 3, values: ['模块', '待办', '创建时间'], roles: ['module', 'title', 'createdAt'] },
-  { width: 3, values: ['模块', '待办标题', '创建时间'], roles: ['module', 'title', 'createdAt'] },
-  { width: 3, values: ['module', 'todo', 'createdAt'], roles: ['module', 'title', 'createdAt'] },
-  { width: 4, values: ['项目', '模块', '待办', '创建时间'], roles: ['project', 'module', 'title', 'createdAt'] },
-  { width: 4, values: ['项目', '模块', '待办标题', '创建时间'], roles: ['project', 'module', 'title', 'createdAt'] },
-  { width: 4, values: ['project', 'module', 'todo', 'createdAt'], roles: ['project', 'module', 'title', 'createdAt'] }
-]
-
-function headerRoles(cells: string[], width: number): ColumnRole[] | null {
-  const values = cells.map((cell) => cell.trim().toLowerCase())
-  const header = HEADERS.find((item) => item.width === width
-    && item.values.length === values.length
-    && item.values.every((value, index) => value === values[index]))
-  return header ? header.roles : null
+function headerRoles(cells: string[]): ColumnRole[] | null {
+  const roles = cells.map((cell) =>
+    HEADER_ALIASES[cell.trim().normalize('NFKC').toLowerCase()])
+  if (roles.some((role) => !role)) return null
+  if (new Set(roles).size !== roles.length) return null
+  return roles as ColumnRole[]
 }
 
 function emptyPreview(): ImportPreview {
@@ -249,10 +244,10 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
   if (chosen) {
     rows = attempted.find((item) => item.delimiter === chosen)?.rows ?? null
     if (!rows) return { ...preview, error: '解析失败，请重新粘贴' }
-    if (width < 1 || width > 4) {
+    if (width < 1 || width > 5) {
       return {
         ...preview,
-        error: `识别为 ${width} 列，仅支持 1 列（只有待办）、2 列（项目、待办或模块、待办）、3 列（项目、模块、待办）或 4 列（项目、模块、待办、创建时间）；其他列数不导入`
+        error: `识别为 ${width} 列，仅支持 1 列（只有待办）、2 列（项目、待办或模块、待办）、3 列（项目、模块、待办）、4 列（项目、模块、待办、创建时间）或 5 列（项目、模块、待办、创建时间、姓名）；其他列数不导入`
       }
     }
   }
@@ -261,12 +256,12 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
   let skippedHeader = false
   let roles: ColumnRole[] | null = null
   if (rows.length) {
-    const header = headerRoles(rows[0], width)
+    const header = headerRoles(rows[0])
     if (header && !header.includes('title')) {
       return {
         ...preview,
         delimiter: chosen?.label ?? '单列',
-        error: '识别为「项目、模块」两列，缺少待办列；请补上待办列，或按三列粘贴'
+        error: '表头里缺少待办列；请补上待办列，或按「项目、模块、待办」粘贴'
       }
     }
     if (header) {
@@ -276,11 +271,12 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
     }
   }
   if (!roles) {
-    // 没有表头时：两列按当前筛选判断，四列固定为项目、模块、待办、创建时间
+    // 没有表头时：两列按当前筛选判断，三列以上按固定顺序
     if (width === 1) roles = ['title']
     else if (width === 2) roles = options.activeProject ? ['module', 'title'] : ['project', 'title']
     else if (width === 3) roles = ['project', 'module', 'title']
-    else roles = ['project', 'module', 'title', 'createdAt']
+    else if (width === 4) roles = ['project', 'module', 'title', 'createdAt']
+    else roles = ['project', 'module', 'title', 'createdAt', 'reporter']
   }
   if (!rows.length) return { ...preview, delimiter: chosen?.label ?? '单列', skippedHeader }
   if (rows.length > MAX_IMPORT_ROWS) {
@@ -298,7 +294,8 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
       project: values.project ?? '',
       module: values.module ?? '',
       title: values.title ?? '',
-      createdAt: values.createdAt || null
+      createdAt: values.createdAt || null,
+      reporter: values.reporter ?? ''
     }
   })
 
@@ -329,9 +326,11 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
     let projectName: string | null = null
     let newProject = false
     let createdAt: string | null = null
+    const reporter = row.reporter.trim()
 
     if (!row.title) error = '缺少待办标题'
     else if (row.title.length > MAX_TITLE_LENGTH) error = `待办标题超过 ${MAX_TITLE_LENGTH} 个字符`
+    if (!error && reporter.length > MAX_REPORTER_LENGTH) error = `姓名超过 ${MAX_REPORTER_LENGTH} 个字符`
     if (!error && row.createdAt) {
       const parsedAt = parseDateTimeInput(row.createdAt)
       if (parsedAt.error) error = parsedAt.error
@@ -397,6 +396,7 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
       module,
       title: row.title,
       createdAt,
+      reporter,
       projectName,
       newProject,
       newModule,
