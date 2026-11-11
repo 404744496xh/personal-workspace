@@ -20,6 +20,7 @@ import TodoForm from '../components/TodoForm.vue'
 import QuickAddTodo from '../components/QuickAddTodo.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
+import TodoImportDialog from '../components/TodoImportDialog.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
@@ -102,6 +103,7 @@ const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
 const selected = ref<Set<string>>(new Set())
+const importOpen = ref(false)
 const bulkBusy = ref(false)
 const bulkDeleteOpen = ref(false)
 const moveOpen = ref(false)
@@ -415,6 +417,10 @@ function persistCache(): void {
   writeCache('projects', projects.value)
 }
 
+const openTodoTitles = computed(() => items.value
+  .filter((todo) => !todo.completed && !todo.dismissed)
+  .map((todo) => todo.title))
+
 async function load(options: { silent?: boolean } = {}): Promise<void> {
   const seq = ++requestSeq
   if (!options.silent) loading.value = true
@@ -562,6 +568,9 @@ async function ensureProjectModule(projectName: string | null,
   if (!projectName || !moduleName) return
   const project = projects.value.find((item) => item.name === projectName)
   if (!project || project.modules.includes(moduleName)) return
+  if (project.modules.length >= 20) {
+    throw new ApiError(400, 'MODULE_LIMIT', '每个项目最多 20 个模块')
+  }
   const updated = await updateProject(project.name, {
     title: project.title,
     modules: [...project.modules, moduleName]
@@ -1190,6 +1199,21 @@ onUnmounted(() => {
       </Button>
       <div class="ml-auto flex flex-wrap items-center gap-1.5">
         <span class="hidden h-5 w-px bg-black/[0.07] dark:bg-white/10 sm:block" aria-hidden="true"></span>
+        <Button
+          :variant="importOpen ? 'primary' : 'secondary'"
+          size="icon"
+          class="ws-import-toggle"
+          :aria-label="importOpen ? '关闭粘贴导入' : '粘贴导入待办'"
+          :title="importOpen ? '关闭粘贴导入' : '粘贴导入待办（Excel 项目 / 模块 / 待办）'"
+          :aria-pressed="importOpen"
+          @click="importOpen = !importOpen"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="4" y="3" width="8" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" />
+            <path d="M6.5 3V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7V3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+            <path d="M6 6.5h4M6 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          </svg>
+        </Button>
         <Button
           :variant="selecting ? 'primary' : 'secondary'"
           size="icon"
@@ -1941,6 +1965,17 @@ onUnmounted(() => {
       confirm-text="删除"
       @confirm="removeBulkConfirmed"
       @close="bulkDeleteOpen = false"
+    />
+
+    <TodoImportDialog
+      v-if="importOpen"
+      :projects="projects"
+      :active-project="activeProject"
+      :active-module="activeModule"
+      :open-titles="openTodoTitles"
+      @close="importOpen = false"
+      @done="load({ silent: true })"
+      @unauthorized="emit('unauthorized')"
     />
 
     <div
