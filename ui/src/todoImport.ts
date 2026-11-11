@@ -20,7 +20,6 @@ export interface ParsedRow {
 
 export interface ImportRow extends ParsedRow {
   projectName: string | null
-  newProject: boolean
   newModule: boolean
   error: string
 }
@@ -30,7 +29,6 @@ export interface ImportPreview {
   delimiter: string
   skippedHeader: boolean
   rows: ImportRow[]
-  newProjects: string[]
   duplicateProjectTitles: string[]
   duplicateOpenCount: number
 }
@@ -39,7 +37,6 @@ export interface ResolveOptions {
   projects: Project[]
   activeProject: string | null
   activeModule: string | null
-  autoCreateProjects: boolean
   openTitles: string[]
 }
 
@@ -206,7 +203,6 @@ function emptyPreview(): ImportPreview {
     delimiter: '',
     skippedHeader: false,
     rows: [],
-    newProjects: [],
     duplicateProjectTitles: [],
     duplicateOpenCount: 0
   }
@@ -350,13 +346,11 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
   }
   const openTitles = new Set(options.openTitles.map((title) => title.trim()))
   const moduleTrackers = new Map<string, Set<string>>()
-  const newProjects: string[] = []
 
   for (const row of parsed) {
     let error = ''
     let projectTitle = row.project
     let projectName: string | null = null
-    let newProject = false
     let createdAt: string | null = null
     const reporter = row.reporter.trim()
     const detail = row.detail.trim()
@@ -384,11 +378,8 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
           if (matches.length > 1 && !preview.duplicateProjectTitles.includes(projectTitle)) {
             preview.duplicateProjectTitles.push(projectTitle)
           }
-        } else if (options.autoCreateProjects) {
-          if (projectTitle.length > MAX_TITLE_LENGTH) error = `项目名超过 ${MAX_TITLE_LENGTH} 个字符`
-          else newProject = true
         } else {
-          error = `项目「${projectTitle}」不存在`
+          error = `项目「${projectTitle}」不存在，请改选已有项目或留空`
         }
       }
     }
@@ -404,13 +395,10 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
     }
 
     let newModule = false
-    if (!error && module && projectTitle) {
-      const key = projectName ? `p:${projectName}` : `n:${projectTitle}`
-      const existing = projectName
-        ? (options.projects.find((project) => project.name === projectName)?.modules ?? [])
-        : []
-      const tracker = moduleTrackers.get(key) ?? new Set(existing)
-      moduleTrackers.set(key, tracker)
+    if (!error && module && projectName) {
+      const existing = options.projects.find((project) => project.name === projectName)?.modules ?? []
+      const tracker = moduleTrackers.get(projectName) ?? new Set(existing)
+      moduleTrackers.set(projectName, tracker)
       if (!tracker.has(module)) {
         if (tracker.size >= MAX_PROJECT_MODULES) {
           error = `项目「${projectTitle}」最多 ${MAX_PROJECT_MODULES} 个模块`
@@ -422,7 +410,6 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
     }
 
     if (!error && openTitles.has(row.title)) preview.duplicateOpenCount += 1
-    if (!error && newProject && !newProjects.includes(projectTitle)) newProjects.push(projectTitle)
 
     preview.rows.push({
       line: row.line,
@@ -433,11 +420,9 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
       createdAt,
       reporter,
       projectName,
-      newProject,
       newModule,
       error
     })
   }
-  preview.newProjects = newProjects
   return preview
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { aiImport, ApiError, createProject, createTodo, updateProject } from '../api'
+import { aiImport, ApiError, createTodo, updateProject } from '../api'
 import type { AiImportRow, Project } from '../types'
 import { formatDateTime, messageOf } from '../utils'
 import { toDateTimeLocal } from '../datetime'
@@ -34,11 +34,9 @@ const emit = defineEmits<{
 }>()
 
 const text = ref('')
-const autoCreate = ref(true)
 const importing = ref(false)
 const finished = ref(false)
 const progress = ref({ done: 0, total: 0 })
-const createdProjects = ref(0)
 const results = ref(new Map<number, string>())
 const aiBusy = ref(false)
 const aiError = ref('')
@@ -70,7 +68,6 @@ const resolveOptions = () => ({
   projects: props.projects,
   activeProject: props.activeProject,
   activeModule: props.activeModule,
-  autoCreateProjects: autoCreate.value,
   openTitles: props.openTitles
 })
 
@@ -205,53 +202,26 @@ async function runImport(): Promise<void> {
   results.value = new Map()
   const rows = validRows.value
   progress.value = { done: 0, total: rows.length }
-  createdProjects.value = 0
-
-  const working = props.projects.map((project) => ({
-    name: project.name,
-    title: project.title,
-    modules: [...project.modules]
-  }))
-  const projectNames = new Map<string, string>()
-
-  for (const title of activePreview.value.newProjects) {
-    const targets = rows.filter((row) => row.newProject && row.project === title)
-    const modules = distinct(targets.map((row) => row.module))
-    try {
-      const created = await createProject({ title, modules })
-      projectNames.set(title, created.name)
-      working.push({ name: created.name, title: created.title, modules: [...created.modules] })
-      createdProjects.value += 1
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        importing.value = false
-        emit('unauthorized')
-        return
-      }
-      failRows(targets, `项目创建失败：${messageOf(err)}`)
-    }
-  }
 
   const moduleTargets = new Map<string, typeof rows>()
   for (const row of rows) {
-    if (row.newProject || !row.newModule || !row.projectName) continue
+    if (!row.newModule || !row.projectName) continue
     const list = moduleTargets.get(row.projectName) ?? []
     list.push(row)
     moduleTargets.set(row.projectName, list)
   }
   for (const [name, targets] of moduleTargets) {
-    const project = working.find((item) => item.name === name)
+    const project = props.projects.find((item) => item.name === name)
     if (!project) {
       failRows(targets, '项目不存在')
       continue
     }
     const modules = distinct(targets.map((row) => row.module))
     try {
-      const updated = await updateProject(name, {
+      await updateProject(name, {
         title: project.title,
         modules: [...project.modules, ...modules.filter((module) => !project.modules.includes(module))]
       })
-      project.modules = [...updated.modules]
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         importing.value = false
@@ -271,15 +241,11 @@ async function runImport(): Promise<void> {
       const row = queue[cursor]
       cursor += 1
       try {
-        const projectName = row.newProject
-          ? projectNames.get(row.project) ?? null
-          : row.projectName
-        if (row.newProject && !projectName) throw new Error('项目创建失败')
         await createTodo({
           title: row.title,
           detail: row.detail || '',
           priority: 'MEDIUM',
-          project: projectName,
+          project: row.projectName,
           module: row.module || null,
           dueDate: null,
           completed: false,
@@ -327,7 +293,7 @@ async function runImport(): Promise<void> {
     </template>
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
+        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。项目只匹配已有项目（不会新建），列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
       </p>
       <div
         v-if="helpOpen"
@@ -346,7 +312,7 @@ async function runImport(): Promise<void> {
         <ul class="mt-1 list-disc space-y-0.5 pl-4">
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
-          <li>项目不存在时可自动创建；每个项目最多 20 个模块，一次最多 500 行。</li>
+          <li>项目必须是已有项目（不会自动创建），对不上的行会标红；每个项目最多 20 个模块，一次最多 500 行。</li>
           <li>AI 识别会按语义归并项目 / 模块，并识别创建时间、姓名与描述列；描述写入待办详情，负责人、处理人不算姓名。内容较多时会自动分批识别，进度显示在按钮上。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
@@ -364,15 +330,6 @@ async function runImport(): Promise<void> {
         aria-label="粘贴待办数据"
         :disabled="importing || finished || aiBusy"
       />
-      <label class="flex w-fit cursor-pointer items-center gap-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]">
-        <input
-          v-model="autoCreate"
-          class="h-4 w-4 accent-[#007AFF]"
-          type="checkbox"
-          :disabled="importing || finished"
-        />
-        自动创建不存在的项目
-      </label>
 
       <div
         v-if="aiError"
@@ -395,7 +352,6 @@ async function runImport(): Promise<void> {
           <span>有效 <b class="text-[#1d1d1f] dark:text-[#f5f5f7]">{{ validRows.length }}</b> 行</span>
           <span v-if="errorRows.length">问题 <b class="text-[#FF3B30]">{{ errorRows.length }}</b> 行</span>
           <span v-if="!editing && preview.skippedHeader">已跳过表头</span>
-          <span v-if="activePreview.newProjects.length">新建项目 {{ activePreview.newProjects.length }} 个</span>
           <Button v-if="editing" variant="ghost" size="sm" class="ml-auto" @click="editing = false">
             改用规则识别
           </Button>
@@ -447,7 +403,8 @@ async function runImport(): Promise<void> {
                     <option
                       v-if="row.project && !projectTitles.includes(row.project)"
                       :value="row.project"
-                    >新建：{{ row.project }}</option>
+                      disabled
+                    >不存在：{{ row.project }}</option>
                   </Select>
                 </td>
                 <td class="px-2 py-1.5">
@@ -546,7 +503,6 @@ async function runImport(): Promise<void> {
                 <td class="px-3 py-1.5 tabular-nums text-[#6e6e73] dark:text-[#98989d]">{{ row.line }}</td>
                 <td class="max-w-[160px] truncate px-3 py-1.5" :title="displayProject(row)">
                   {{ displayProject(row) }}
-                  <span v-if="row.newProject" class="ml-1 text-[10px] text-[#FF9F0A]">新建</span>
                 </td>
                 <td class="max-w-[120px] truncate px-3 py-1.5" :title="row.module">{{ row.module || '—' }}</td>
                 <td class="max-w-[260px] truncate px-3 py-1.5" :title="row.title">{{ row.title || '—' }}</td>
@@ -578,9 +534,7 @@ async function runImport(): Promise<void> {
         正在导入 {{ progress.done }} / {{ progress.total }}
       </p>
       <p v-if="finished" class="ws-import-result text-[13px] font-medium">
-        成功 {{ summary.ok }} 条<span v-if="summary.failed">，失败 {{ summary.failed }} 条</span><span
-          v-if="createdProjects"
-        >，新建项目 {{ createdProjects }} 个</span>
+        成功 {{ summary.ok }} 条<span v-if="summary.failed">，失败 {{ summary.failed }} 条</span>
       </p>
 
       <div class="flex flex-wrap items-center gap-3 pt-1">
