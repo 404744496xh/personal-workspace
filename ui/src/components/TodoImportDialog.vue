@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { aiImport, ApiError, createProject, createTodo, updateProject } from '../api'
-import type { Project } from '../types'
+import type { AiImportRow, Project } from '../types'
 import { formatDateTime, messageOf } from '../utils'
 import { toDateTimeLocal } from '../datetime'
 import { parseImport, resolveRows } from '../todoImport'
@@ -42,6 +42,8 @@ const createdProjects = ref(0)
 const results = ref(new Map<number, string>())
 const aiBusy = ref(false)
 const aiError = ref('')
+const aiProgress = ref({ done: 0, total: 1 })
+const AI_CHUNK_LINES = 40
 const editing = ref(false)
 const editRows = ref<EditRow[]>([])
 const helpOpen = ref(false)
@@ -153,13 +155,34 @@ function removeEditRow(index: number): void {
   editRows.value.splice(index, 1)
 }
 
+function splitForAi(source: string): string[] {
+  const lines = source.split('\n')
+  const chunks: string[] = []
+  for (let index = 0; index < lines.length; index += AI_CHUNK_LINES) {
+    const chunk = lines.slice(index, index + AI_CHUNK_LINES).join('\n')
+    if (chunk.trim()) chunks.push(chunk)
+  }
+  return chunks.length ? chunks : [source]
+}
+
 async function runAi(): Promise<void> {
   if (aiBusy.value || importing.value || finished.value || !text.value.trim()) return
   aiBusy.value = true
   aiError.value = ''
+  const chunks = splitForAi(text.value)
+  aiProgress.value = { done: 0, total: chunks.length }
   try {
-    const response = await aiImport(text.value)
-    editRows.value = response.rows.map((row) => ({
+    const rows: AiImportRow[] = []
+    for (let index = 0; index < chunks.length; index += 1) {
+      const response = await aiImport(chunks[index])
+      rows.push(...response.rows)
+      aiProgress.value = { done: index + 1, total: chunks.length }
+    }
+    if (!rows.length) {
+      aiError.value = 'AI 没有识别出待办，请检查粘贴内容'
+      return
+    }
+    editRows.value = rows.map((row) => ({
       project: row.project.trim(),
       module: row.module.trim(),
       title: row.title.trim(),
@@ -173,7 +196,10 @@ async function runAi(): Promise<void> {
       emit('unauthorized')
       return
     }
-    aiError.value = messageOf(err)
+    const batch = aiProgress.value.total > 1
+      ? `第 ${Math.min(aiProgress.value.done + 1, aiProgress.value.total)}/${aiProgress.value.total} 批：`
+      : ''
+    aiError.value = `${batch}${messageOf(err)}`
   } finally {
     aiBusy.value = false
   }
@@ -327,7 +353,7 @@ async function runImport(): Promise<void> {
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
           <li>项目不存在时可自动创建；每个项目最多 20 个模块，一次最多 500 行。</li>
-          <li>AI 识别会按语义归并项目 / 模块，并识别创建时间、姓名与描述列；描述写入待办详情，负责人、处理人不算姓名。</li>
+          <li>AI 识别会按语义归并项目 / 模块，并识别创建时间、姓名与描述列；描述写入待办详情，负责人、处理人不算姓名。内容较多时会自动分批识别，进度显示在按钮上。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
           <span class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">模板</span>
@@ -342,7 +368,7 @@ async function runImport(): Promise<void> {
         class="ws-import-text min-h-[150px] font-mono text-[13px]"
         placeholder="项目	模块	待办	创建时间	姓名"
         aria-label="粘贴待办数据"
-        :disabled="importing || finished"
+        :disabled="importing || finished || aiBusy"
       />
       <label class="flex w-fit cursor-pointer items-center gap-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]">
         <input
@@ -570,7 +596,11 @@ async function runImport(): Promise<void> {
           :disabled="importing || finished || aiBusy || !text.trim()"
           @click="runAi"
         >
-          {{ aiBusy ? 'AI 识别中…' : 'AI 识别' }}
+          {{ aiBusy
+            ? (aiProgress.total > 1
+              ? `AI 识别中 ${Math.min(aiProgress.done + 1, aiProgress.total)}/${aiProgress.total}…`
+              : 'AI 识别中…')
+            : 'AI 识别' }}
         </Button>
         <Button variant="ghost" :disabled="importing" @click="emit('close')">关闭</Button>
         <Button variant="primary" class="ws-import-submit" :disabled="!canImport" @click="runImport">

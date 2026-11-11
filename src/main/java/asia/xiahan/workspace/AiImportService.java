@@ -287,8 +287,9 @@ public class AiImportService {
                 firstText(item, "姓名", "提出人", "反馈人", "提交人", "reporter", "name").trim()));
         }
         if (rows.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "AI_BAD_OUTPUT",
-                "AI 没有识别出待办，请检查粘贴内容");
+            // 分批识别时某些块可能只有表头或换行续行，按空块处理，由前端汇总后提示
+            log.info("AI import returned no rows");
+            return List.of();
         }
         if (rows.size() > MAX_ROWS) {
             throw ApiException.badRequest("AI 识别结果超过 " + MAX_ROWS + " 行，请分批导入");
