@@ -313,7 +313,7 @@ async function runImport(): Promise<void> {
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
           <li>项目必须是已有项目（不会自动创建），对不上的行会标红；每个项目最多 20 个模块，一次最多 500 行。</li>
-          <li>AI 识别会按语义归并项目 / 模块，并识别创建时间、姓名与描述列；描述写入待办详情，负责人、处理人不算姓名。内容较多时会自动分批识别，进度显示在按钮上。</li>
+          <li>AI 识别会把功能名与问题描述合并成能独立看懂的待办标题；标题说清楚了详情就留空，详情只放标题之外的补充信息。也会按语义归并项目 / 模块，并识别创建时间、姓名与描述列，负责人、处理人不算姓名。内容较多时会自动分批识别，进度显示在按钮上。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
           <span class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">模板</span>
@@ -419,9 +419,11 @@ async function runImport(): Promise<void> {
                   </Select>
                 </td>
                 <td class="px-2 py-1.5">
-                  <Input
+                  <Textarea
                     v-model="row.title"
-                    class="ws-import-cell min-w-[180px]"
+                    class="ws-import-cell min-w-[260px]"
+                    rows="2"
+                    maxlength="200"
                     :aria-label="`第 ${index + 1} 行待办`"
                     :disabled="importing || finished"
                   />
