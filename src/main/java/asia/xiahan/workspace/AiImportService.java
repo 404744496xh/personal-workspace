@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -36,10 +38,12 @@ import tools.jackson.databind.json.JsonMapper;
 public class AiImportService {
 
     private static final String SETTINGS_CONFIG_MAP = "personal-workspace-config";
-    private static final Duration TIMEOUT = Duration.ofSeconds(120);
+    // 站点经过 Cloudflare（100 秒上限），插件必须更早返回 JSON 错误，否则前端只能看到网关错误页
+    private static final Duration TIMEOUT = Duration.ofSeconds(75);
     private static final int MAX_ROWS = 200;
     private static final int MAX_PROJECTS_IN_PROMPT = 100;
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
+    private static final Logger log = LoggerFactory.getLogger(AiImportService.class);
 
     private final ReactiveExtensionClient client;
     private final WorkspaceDataAccess dataAccess;
@@ -50,6 +54,8 @@ public class AiImportService {
     }
 
     public Mono<List<AiImportRow>> analyze(String owner, String text) {
+        var started = System.nanoTime();
+        log.info("AI import start: chars={}", text.length());
         return settings()
             .flatMap(ai -> dataAccess.listProjects(owner)
                 .take(MAX_PROJECTS_IN_PROMPT)
@@ -57,9 +63,17 @@ public class AiImportService {
                 .flatMap(projects -> callModel(ai, buildPrompt(projects), text)
                     .map(output -> parseRows(output, projects))))
             .timeout(TIMEOUT)
+            .doOnNext(rows -> log.info("AI import done: chars={}, rows={}, elapsedMs={}",
+                text.length(), rows.size(), elapsedMs(started)))
+            .doOnError(error -> log.warn("AI import failed: chars={}, elapsedMs={}, error={}",
+                text.length(), elapsedMs(started), error.toString()))
             .onErrorMap(TimeoutException.class,
                 error -> new ApiException(HttpStatus.GATEWAY_TIMEOUT, "AI_TIMEOUT",
-                    "AI 识别超时，请减少行数或稍后重试"));
+                    "AI 识别超时（75 秒），请减少行数或稍后重试"));
+    }
+
+    private static long elapsedMs(long started) {
+        return (System.nanoTime() - started) / 1_000_000;
     }
 
     private Mono<AiSettings> settings() {
@@ -101,6 +115,7 @@ public class AiImportService {
                 Map.of("role", "system", "content", systemPrompt),
                 Map.of("role", "user", "content", userText)
             ));
+        log.info("AI request: url={}, model={}, chars={}", url, ai.model(), userText.length());
         return WebClient.builder()
             .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(4 * 1024 * 1024))
             .build()
@@ -113,9 +128,13 @@ public class AiImportService {
             .retrieve()
             .onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
                 .defaultIfEmpty("")
-                .map(errorBody -> new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR",
-                    "AI 接口调用失败（" + response.statusCode().value() + "）："
-                        + errorMessage(errorBody))))
+                .map(errorBody -> {
+                    log.warn("AI upstream error: status={}, body={}",
+                        response.statusCode().value(), truncate(errorBody));
+                    return new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR",
+                        "AI 接口调用失败（" + response.statusCode().value() + "）："
+                            + errorMessage(errorBody));
+                }))
             .bodyToMono(JsonNode.class)
             .map(this::readContent)
             .onErrorMap(IllegalStateException.class,
