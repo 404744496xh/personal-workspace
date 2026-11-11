@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'asia.xiahan'
-version = '0.6.62'
+version = '0.6.63'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

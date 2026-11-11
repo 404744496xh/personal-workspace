@@ -122,6 +122,8 @@ const timeOpen = ref(Boolean(todosTarget?.stale))
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
 const savingRename = ref(false)
 const renameError = ref('')
+const collapsedProjects = ref<Set<string>>(new Set())
+const collapsedModules = ref<Set<string>>(new Set())
 
 const hasFilters = computed(() =>
   keyword.value.trim() !== '' || status.value !== 'ALL' || priority.value !== ''
@@ -210,12 +212,61 @@ function projectKeyOf(todo: Todo): string {
     : ''
 }
 
+function groupCollapseKey(key: string): string {
+  return key || 'unclassified'
+}
+
+function moduleCollapseKey(projectKey: string, moduleKey: string): string {
+  return `${groupCollapseKey(projectKey)}::${moduleKey || ''}`
+}
+
+function isProjectCollapsed(key: string): boolean {
+  return collapsedProjects.value.has(groupCollapseKey(key))
+}
+
+function isModuleCollapsed(projectKey: string, moduleKey: string): boolean {
+  return collapsedModules.value.has(moduleCollapseKey(projectKey, moduleKey))
+}
+
+function toggleCollapseProject(key: string): void {
+  const id = groupCollapseKey(key)
+  const next = new Set(collapsedProjects.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsedProjects.value = next
+}
+
+function toggleCollapseModule(projectKey: string, moduleKey: string): void {
+  const id = moduleCollapseKey(projectKey, moduleKey)
+  const next = new Set(collapsedModules.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  collapsedModules.value = next
+}
+
+function expandProject(key: string): void {
+  const id = groupCollapseKey(key)
+  if (!collapsedProjects.value.has(id)) return
+  const next = new Set(collapsedProjects.value)
+  next.delete(id)
+  collapsedProjects.value = next
+}
+
+function expandModule(projectKey: string, moduleKey: string): void {
+  const id = moduleCollapseKey(projectKey, moduleKey)
+  if (!collapsedModules.value.has(id)) return
+  const next = new Set(collapsedModules.value)
+  next.delete(id)
+  collapsedModules.value = next
+}
+
 function toggleProject(key: string): void {
   if (activeProject.value === key && activeModule.value === null) {
     activeProject.value = null
   } else {
     activeProject.value = key
     activeModule.value = null
+    expandProject(key)
   }
 }
 
@@ -225,6 +276,8 @@ function toggleModule(projectKey: string, moduleKey: string): void {
   } else {
     activeProject.value = projectKey
     activeModule.value = moduleKey
+    expandProject(projectKey)
+    expandModule(projectKey, moduleKey)
   }
 }
 
@@ -1501,9 +1554,18 @@ onUnmounted(() => {
             <span
               class="ws-group-count rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#6e6e73] dark:bg-white/[0.08] dark:text-[#98989d]"
             >{{ group.count }}</span>
+          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="ws-collapse shrink-0 text-[#6e6e73] dark:text-[#98989d]"
+            :aria-label="isProjectCollapsed(group.key) ? `展开 ${group.title}` : `收起 ${group.title}`"
+            :title="isProjectCollapsed(group.key) ? '展开' : '收起'"
+            @click="toggleCollapseProject(group.key)"
+          >
             <svg
-              class="ml-auto h-3.5 w-3.5 shrink-0 opacity-40 transition-transform duration-200 ease-[var(--ws-ease)]"
-              :class="{ 'rotate-90': activeProject === group.key }"
+              class="h-4 w-4 transition-transform duration-200 ease-[var(--ws-ease)]"
+              :class="{ 'rotate-90': !isProjectCollapsed(group.key) }"
               viewBox="0 0 16 16"
               fill="none"
               aria-hidden="true"
@@ -1516,7 +1578,7 @@ onUnmounted(() => {
                 stroke-linejoin="round"
               />
             </svg>
-          </button>
+          </Button>
           <Button
             v-if="groupOpenTodos(group).length"
             variant="ghost"
@@ -1582,7 +1644,7 @@ onUnmounted(() => {
         </header>
 
         <form
-          v-if="addingModuleFor === group.key"
+          v-if="addingModuleFor === group.key && !isProjectCollapsed(group.key)"
           class="ws-module-add flex flex-wrap items-start gap-2 px-4 pb-3"
           @submit.prevent="saveModule(group.key)"
         >
@@ -1608,7 +1670,7 @@ onUnmounted(() => {
           >{{ moduleError }}</p>
         </form>
 
-        <div class="px-2 pb-3">
+        <div v-if="!isProjectCollapsed(group.key)" class="px-2 pb-3">
           <section
             v-for="moduleGroup in group.modules"
             :key="moduleGroup.key || 'unassigned'"
@@ -1670,6 +1732,32 @@ onUnmounted(() => {
                   <span class="truncate">{{ moduleGroup.label }}</span>
                   <span class="text-[11px] tabular-nums opacity-50">{{ moduleGroup.todos.length }}</span>
                 </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="ws-collapse shrink-0 text-[#6e6e73] dark:text-[#98989d]"
+                  :aria-label="isModuleCollapsed(group.key, moduleGroup.key)
+                    ? `展开 ${moduleGroup.label}`
+                    : `收起 ${moduleGroup.label}`"
+                  :title="isModuleCollapsed(group.key, moduleGroup.key) ? '展开' : '收起'"
+                  @click="toggleCollapseModule(group.key, moduleGroup.key)"
+                >
+                  <svg
+                    class="h-3.5 w-3.5 transition-transform duration-200 ease-[var(--ws-ease)]"
+                    :class="{ 'rotate-90': !isModuleCollapsed(group.key, moduleGroup.key) }"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6 3l4.5 5L6 13"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </Button>
                 <Button
                   v-if="groupOpenTodos(moduleGroup).length"
                   variant="ghost"
@@ -1740,177 +1828,179 @@ onUnmounted(() => {
                 </Button>
               </template>
             </div>
-            <p
-              v-if="moduleGroup.label && !moduleGroup.todos.length"
-              class="ws-module-empty px-3 pb-2 pt-1 text-[12px] text-[#1d1d1f]/35 dark:text-[#f5f5f7]/30"
-            >暂无待办</p>
-            <article
-              v-for="todo in moduleGroup.todos"
-              :key="todo.name"
-              class="ws-todo group flex items-start gap-1 rounded-xl px-1 transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
-              :class="{
-                done: todo.completed,
-                dismissed: todo.dismissed,
-                'bg-[#007AFF]/[0.06] dark:bg-[#0A84FF]/[0.10]': selecting && selected.has(todo.name)
-              }"
-            >
-              <label
-                v-if="selecting"
-                class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
+            <template v-if="!isModuleCollapsed(group.key, moduleGroup.key)">
+              <p
+                v-if="moduleGroup.label && !moduleGroup.todos.length"
+                class="ws-module-empty px-3 pb-2 pt-1 text-[12px] text-[#1d1d1f]/35 dark:text-[#f5f5f7]/30"
+              >暂无待办</p>
+              <article
+                v-for="todo in moduleGroup.todos"
+                :key="todo.name"
+                class="ws-todo group flex items-start gap-1 rounded-xl px-1 transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+                :class="{
+                  done: todo.completed,
+                  dismissed: todo.dismissed,
+                  'bg-[#007AFF]/[0.06] dark:bg-[#0A84FF]/[0.10]': selecting && selected.has(todo.name)
+                }"
               >
-                <input
-                  class="ws-select h-5 w-5 accent-[#007AFF]"
-                  type="checkbox"
-                  :checked="selected.has(todo.name)"
-                  :disabled="bulkBusy"
-                  :aria-label="`选择 ${todo.title}`"
-                  @change="toggleSelect(todo.name)"
-                />
-              </label>
-              <label
-                v-else
-                class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
-              >
-                <input
-                  class="ws-check h-5 w-5 accent-[#007AFF]"
-                  type="checkbox"
-                  :checked="todo.completed"
-                  :disabled="busy === todo.name || bulkBusy"
-                  :aria-label="`标记 ${todo.title} 完成`"
-                  @change="toggle(todo)"
-                />
-              </label>
-              <div
-                class="ws-todo-body min-w-0 flex-1 cursor-pointer py-2.5"
-                @click="selecting ? toggleSelect(todo.name) : openEdit(todo)"
-              >
-                <div class="ws-todo-top flex items-baseline gap-2">
-                  <h4
-                    class="min-w-0 flex-1 truncate text-[14px]"
-                    :class="todo.completed || todo.dismissed
-                      ? 'text-[#1d1d1f]/45 dark:text-[#f5f5f7]/40'
-                      : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
-                  >{{ todo.title }}</h4>
-                  <span
-                    v-if="todo.dismissed"
-                    class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
-                  >不用处理</span>
-                  <span
-                    class="ws-prio shrink-0 text-[11px] font-medium tabular-nums"
-                    :class="priorityClass(todo.priority)"
-                  >{{ priorityLabel(todo.priority) }}</span>
-                </div>
-                <p
-                  v-if="todo.detail"
-                  class="ws-todo-detail line-clamp-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
-                >{{ todo.detail }}</p>
+                <label
+                  v-if="selecting"
+                  class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
+                >
+                  <input
+                    class="ws-select h-5 w-5 accent-[#007AFF]"
+                    type="checkbox"
+                    :checked="selected.has(todo.name)"
+                    :disabled="bulkBusy"
+                    :aria-label="`选择 ${todo.title}`"
+                    @change="toggleSelect(todo.name)"
+                  />
+                </label>
+                <label
+                  v-else
+                  class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
+                >
+                  <input
+                    class="ws-check h-5 w-5 accent-[#007AFF]"
+                    type="checkbox"
+                    :checked="todo.completed"
+                    :disabled="busy === todo.name || bulkBusy"
+                    :aria-label="`标记 ${todo.title} 完成`"
+                    @change="toggle(todo)"
+                  />
+                </label>
                 <div
-                  v-if="todo.reporter || todo.dueDate || todo.completedAt || todo.createdAt"
-                  class="ws-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]"
+                  class="ws-todo-body min-w-0 flex-1 cursor-pointer py-2.5"
+                  @click="selecting ? toggleSelect(todo.name) : openEdit(todo)"
                 >
-                  <span v-if="todo.reporter" class="ws-reporter">姓名 {{ todo.reporter }}</span>
-                  <span
-                    v-if="todo.dueDate"
-                    class="ws-due"
-                    :class="isOverdue(todo) ? 'text-[#FF3B30]' : ''"
-                  >{{ todo.dueDate }}</span>
-                  <span v-if="todo.completedAt" class="ws-completed-at">
-                    完成于 {{ formatDateTime(todo.completedAt) }}
-                  </span>
-                  <span v-if="todo.createdAt" class="ws-created-at">
-                    创建于 {{ formatDateTime(todo.createdAt) }}
-                  </span>
+                  <div class="ws-todo-top flex items-baseline gap-2">
+                    <h4
+                      class="min-w-0 flex-1 truncate text-[14px]"
+                      :class="todo.completed || todo.dismissed
+                        ? 'text-[#1d1d1f]/45 dark:text-[#f5f5f7]/40'
+                        : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
+                    >{{ todo.title }}</h4>
+                    <span
+                      v-if="todo.dismissed"
+                      class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
+                    >不用处理</span>
+                    <span
+                      class="ws-prio shrink-0 text-[11px] font-medium tabular-nums"
+                      :class="priorityClass(todo.priority)"
+                    >{{ priorityLabel(todo.priority) }}</span>
+                  </div>
+                  <p
+                    v-if="todo.detail"
+                    class="ws-todo-detail line-clamp-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
+                  >{{ todo.detail }}</p>
+                  <div
+                    v-if="todo.reporter || todo.dueDate || todo.completedAt || todo.createdAt"
+                    class="ws-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]"
+                  >
+                    <span v-if="todo.reporter" class="ws-reporter">姓名 {{ todo.reporter }}</span>
+                    <span
+                      v-if="todo.dueDate"
+                      class="ws-due"
+                      :class="isOverdue(todo) ? 'text-[#FF3B30]' : ''"
+                    >{{ todo.dueDate }}</span>
+                    <span v-if="todo.completedAt" class="ws-completed-at">
+                      完成于 {{ formatDateTime(todo.completedAt) }}
+                    </span>
+                    <span v-if="todo.createdAt" class="ws-created-at">
+                      创建于 {{ formatDateTime(todo.createdAt) }}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div
-                class="ws-todo-actions flex shrink-0 items-center self-center transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
-              >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  :aria-label="`为 ${todo.title} 新建笔记`"
-                  title="新建笔记"
-                  @click="createNoteHere({ todo: todo.name })"
+                <div
+                  class="ws-todo-actions flex shrink-0 items-center self-center transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
                 >
-                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
-                      stroke="currentColor"
-                      stroke-width="1.4"
-                    />
-                    <path d="M7 5.5v5M4.5 8h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  :disabled="noteBusy !== null"
-                  :aria-label="`查看 ${todo.title} 的关联笔记`"
-                  title="查看关联笔记"
-                  @click="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
-                >
-                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
-                      stroke="currentColor"
-                      stroke-width="1.4"
-                    />
-                    <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  :disabled="busy === todo.name"
-                  :aria-label="todo.dismissed
-                    ? `恢复 ${todo.title} 到待办`
-                    : `将 ${todo.title} 标记为不用处理`"
-                  :title="todo.dismissed ? '恢复到待办' : '不用处理'"
-                  @click="setDismissed(todo, !todo.dismissed)"
-                >
-                  <svg v-if="todo.dismissed" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M3.5 7a4.8 4.8 0 118.2 3.4M3.5 3.5V7h3.5"
-                      stroke="currentColor"
-                      stroke-width="1.4"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                  <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M2.5 4h11v2.2h-11zM3.7 6.2V13h8.6V6.2M6.3 9h3.4"
-                      stroke="currentColor"
-                      stroke-width="1.4"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="text-[#FF3B30]/75 hover:text-[#FF3B30]"
-                  aria-label="删除"
-                  title="删除"
-                  @click="askDelete(todo)"
-                >
-                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.6 8.5h6.8l.6-8.5"
-                      stroke="currentColor"
-                      stroke-width="1.4"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </Button>
-              </div>
-            </article>
-            <QuickAddTodo
-              v-if="moduleGroup.label && !selecting"
-              :create="(title) => quickCreate(group.key, moduleGroup.key, title)"
-            />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    :aria-label="`为 ${todo.title} 新建笔记`"
+                    title="新建笔记"
+                    @click="createNoteHere({ todo: todo.name })"
+                  >
+                    <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path
+                        d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                      />
+                      <path d="M7 5.5v5M4.5 8h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                    </svg>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    :disabled="noteBusy !== null"
+                    :aria-label="`查看 ${todo.title} 的关联笔记`"
+                    title="查看关联笔记"
+                    @click="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
+                  >
+                    <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path
+                        d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                      />
+                      <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                    </svg>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    :disabled="busy === todo.name"
+                    :aria-label="todo.dismissed
+                      ? `恢复 ${todo.title} 到待办`
+                      : `将 ${todo.title} 标记为不用处理`"
+                    :title="todo.dismissed ? '恢复到待办' : '不用处理'"
+                    @click="setDismissed(todo, !todo.dismissed)"
+                  >
+                    <svg v-if="todo.dismissed" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path
+                        d="M3.5 7a4.8 4.8 0 118.2 3.4M3.5 3.5V7h3.5"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                    <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path
+                        d="M2.5 4h11v2.2h-11zM3.7 6.2V13h8.6V6.2M6.3 9h3.4"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="text-[#FF3B30]/75 hover:text-[#FF3B30]"
+                    aria-label="删除"
+                    title="删除"
+                    @click="askDelete(todo)"
+                  >
+                    <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path
+                        d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.6 8.5h6.8l.6-8.5"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </Button>
+                </div>
+              </article>
+              <QuickAddTodo
+                v-if="moduleGroup.label && !selecting"
+                :create="(title) => quickCreate(group.key, moduleGroup.key, title)"
+              />
+            </template>
           </section>
           <p
             v-if="!group.modules.length && group.key"
