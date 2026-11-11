@@ -258,8 +258,7 @@ async function runImport(): Promise<void> {
   <Modal title="粘贴导入待办" size="wide" @close="onClose">
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 复制 3 列（项目、模块、待办）直接粘贴，单元格留空即可；只粘贴一列时全部按待办标题处理。
-        列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，结果可以修改。{{ contextHint }}
+        从 Excel 复制粘贴：1 列只填待办；2 列按「项目、待办」或「模块、待办」识别，有表头按表头，没有表头时当前筛了项目就按「模块、待办」；3 列为项目、模块、待办，单元格可留空。列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，结果可以修改。{{ contextHint }}
       </p>
       <Textarea
         v-model="text"

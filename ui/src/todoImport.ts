@@ -137,11 +137,26 @@ const THREE_HEADERS = [
 
 const ONE_HEADERS = [['待办'], ['待办标题'], ['标题'], ['todo']]
 
-function isHeader(cells: string[], width: number): boolean {
+type TwoColumnMode = 'two-project' | 'two-module' | 'two-project-module'
+
+const TWO_HEADERS: { values: string[]; mode: TwoColumnMode }[] = [
+  { values: ['项目', '待办'], mode: 'two-project' },
+  { values: ['项目', '待办标题'], mode: 'two-project' },
+  { values: ['project', 'todo'], mode: 'two-project' },
+  { values: ['模块', '待办'], mode: 'two-module' },
+  { values: ['模块', '待办标题'], mode: 'two-module' },
+  { values: ['module', 'todo'], mode: 'two-module' },
+  { values: ['项目', '模块'], mode: 'two-project-module' },
+  { values: ['project', 'module'], mode: 'two-project-module' }
+]
+
+function headerMode(cells: string[], width: number): 'three' | 'one' | TwoColumnMode | null {
   const values = cells.map((cell) => cell.trim().toLowerCase())
-  const candidates = width === 3 ? THREE_HEADERS : ONE_HEADERS
-  return candidates.some((candidate) =>
-    candidate.length === values.length && candidate.every((value, index) => value === values[index]))
+  const matches = (candidate: string[]) =>
+    candidate.length === values.length && candidate.every((value, index) => value === values[index])
+  if (width === 3) return THREE_HEADERS.some(matches) ? 'three' : null
+  if (width === 1) return ONE_HEADERS.some(matches) ? 'one' : null
+  return TWO_HEADERS.find((header) => matches(header.values))?.mode ?? null
 }
 
 function emptyPreview(): ImportPreview {
@@ -219,31 +234,58 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
   if (chosen) {
     rows = attempted.find((item) => item.delimiter === chosen)?.rows ?? null
     if (!rows) return { ...preview, error: '解析失败，请重新粘贴' }
-    if (width !== 3) {
+    if (width !== 2 && width !== 3) {
       return {
         ...preview,
-        error: `识别为 ${width} 列，仅支持 1 列（只有待办）或 3 列（项目、模块、待办）；2 列或其他列数不导入`
+        error: `识别为 ${width} 列，仅支持 1 列（只有待办）、2 列（项目、待办或模块、待办）或 3 列（项目、模块、待办）；其他列数不导入`
       }
     }
   }
 
   if (!rows) return { ...preview, error: '解析失败，请重新粘贴' }
   let skippedHeader = false
-  if (rows.length && isHeader(rows[0], width)) {
-    rows = rows.slice(1)
-    skippedHeader = true
+  // 两列没有表头时：筛了项目就按「模块、待办」，否则按「项目、待办」
+  let twoColumnMode: TwoColumnMode = options.activeProject ? 'two-module' : 'two-project'
+  if (rows.length) {
+    const mode = headerMode(rows[0], width)
+    if (mode === 'two-project-module') {
+      return {
+        ...preview,
+        delimiter: chosen?.label ?? '单列',
+        error: '识别为「项目、模块」两列，缺少待办列；请补上待办列，或按三列粘贴'
+      }
+    }
+    if (mode) {
+      rows = rows.slice(1)
+      skippedHeader = true
+      if (mode === 'two-project' || mode === 'two-module') twoColumnMode = mode
+    }
   }
   if (!rows.length) return { ...preview, delimiter: chosen?.label ?? '单列', skippedHeader }
   if (rows.length > MAX_IMPORT_ROWS) {
     return { ...preview, error: `一次最多导入 ${MAX_IMPORT_ROWS} 行，当前 ${rows.length} 行` }
   }
 
-  const parsed: ParsedRow[] = rows.map((cells, index) => ({
-    line: index + 1 + (skippedHeader ? 1 : 0),
-    project: width === 3 ? (cells[0] ?? '').trim() : '',
-    module: width === 3 ? (cells[1] ?? '').trim() : '',
-    title: (width === 3 ? cells[2] : cells[0])?.trim() ?? ''
-  }))
+  const parsed: ParsedRow[] = rows.map((cells, index) => {
+    const line = index + 1 + (skippedHeader ? 1 : 0)
+    if (width === 3) {
+      return {
+        line,
+        project: (cells[0] ?? '').trim(),
+        module: (cells[1] ?? '').trim(),
+        title: (cells[2] ?? '').trim()
+      }
+    }
+    if (width === 2) {
+      return {
+        line,
+        project: twoColumnMode === 'two-project' ? (cells[0] ?? '').trim() : '',
+        module: twoColumnMode === 'two-module' ? (cells[0] ?? '').trim() : '',
+        title: (cells[1] ?? '').trim()
+      }
+    }
+    return { line, project: '', module: '', title: (cells[0] ?? '').trim() }
+  })
 
   return resolveRows(parsed, options, chosen?.label ?? '单列', skippedHeader)
 }
