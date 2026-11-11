@@ -41,6 +41,7 @@ const results = ref(new Map<number, string>())
 const aiBusy = ref(false)
 const aiError = ref('')
 const aiProgress = ref({ done: 0, total: 1 })
+const aiIgnoredProjects = ref<string[]>([])
 const AI_CHUNK_LINES = 40
 const editing = ref(false)
 const editRows = ref<EditRow[]>([])
@@ -99,16 +100,24 @@ const progressPercent = computed(() => {
   const source = aiBusy.value ? aiProgress.value : progress.value
   return source.total ? Math.round((source.done / source.total) * 100) : 0
 })
+const ignoredProjectTitles = computed(() =>
+  editing.value ? aiIgnoredProjects.value : preview.value.ignoredProjectTitles)
+const lockedProject = computed(() => {
+  if (props.activeProject === null) return null
+  if (props.activeProject === '') return ''
+  return props.projects.find((project) => project.name === props.activeProject)?.title.trim() ?? ''
+})
 const contextHint = computed(() => {
   if (props.activeProject === null) return ''
-  if (props.activeProject === '') return '当前筛选为未分类，项目列为空时导入到未分类。'
+  if (props.activeProject === '') return '当前筛选为未分类：忽略粘贴里的项目列，全部导入为未分类。'
   const title = props.projects.find((project) => project.name === props.activeProject)?.title
   const moduleHint = props.activeModule ? `、模块列为空时归入「${props.activeModule}」` : ''
-  return `当前筛选为项目「${title ?? ''}」，项目列为空时归入该项目${moduleHint}。`
+  return `当前筛选为项目「${title ?? ''}」：忽略粘贴里的项目列，全部导入到该项目${moduleHint}。`
 })
 const projectTitles = computed(() => props.projects.map((project) => project.title))
 
 watch(text, () => {
+  aiIgnoredProjects.value = []
   if (!editing.value) return
   editing.value = false
   aiError.value = ''
@@ -160,6 +169,7 @@ async function runAi(): Promise<void> {
   if (aiBusy.value || importing.value || finished.value || !text.value.trim()) return
   aiBusy.value = true
   aiError.value = ''
+  aiIgnoredProjects.value = []
   const chunks = splitForAiChunks(text.value, AI_CHUNK_LINES)
   aiProgress.value = { done: 0, total: chunks.length }
   try {
@@ -173,14 +183,32 @@ async function runAi(): Promise<void> {
       aiError.value = 'AI 没有识别出待办，请检查粘贴内容'
       return
     }
-    editRows.value = rows.map((row) => ({
-      project: row.project.trim(),
-      module: row.module.trim(),
-      title: row.title.trim(),
-      detail: (row.detail ?? '').trim(),
-      createdAtLocal: toDateTimeLocal(row.createdAt),
-      reporter: (row.reporter ?? '').trim()
-    }))
+    const knownProjects = new Set(props.projects.map((project) => project.title.trim()))
+    const locked = lockedProject.value
+    const ignored: string[] = []
+    editRows.value = rows.map((row) => {
+      let project = row.project.trim()
+      let module = row.module.trim()
+      if (locked !== null) {
+        // 当前筛选决定项目，忽略粘贴里的项目列；未分类时不保留模块
+        project = locked
+        if (!locked) module = ''
+      } else if (project && !knownProjects.has(project)) {
+        // 项目不导入：对不上的项目名丢弃，按未分类处理；模块随项目一起清掉
+        if (!ignored.includes(project)) ignored.push(project)
+        project = ''
+        module = ''
+      }
+      return {
+        project,
+        module,
+        title: row.title.trim(),
+        detail: (row.detail ?? '').trim(),
+        createdAtLocal: toDateTimeLocal(row.createdAt),
+        reporter: (row.reporter ?? '').trim()
+      }
+    })
+    aiIgnoredProjects.value = ignored
     editing.value = true
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) {
@@ -293,7 +321,7 @@ async function runImport(): Promise<void> {
     </template>
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。项目只匹配已有项目（不会新建），列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
+        从 Excel 直接复制，列顺序不限；带表头按列名对应，无表头按 1–5 列规则识别。项目只匹配已有项目（不会新建），对不上的归入未分类；列数或分隔符有歧义时不导入，可直接用「AI 识别」按语义识别。{{ contextHint }}
       </p>
       <div
         v-if="helpOpen"
@@ -302,6 +330,7 @@ async function runImport(): Promise<void> {
         <div class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">列规则</div>
         <ul class="mt-1 list-disc space-y-0.5 pl-4">
           <li>1 列：全部作为待办标题；当前筛了项目 / 模块就归入当前筛选。</li>
+          <li>在项目筛选下导入时，粘贴里的项目列会被忽略，全部归入当前项目（模块列仍按内容新建或复用）；未分类筛选下全部进未分类。</li>
           <li>2 列：有表头按表头；无表头时没筛项目按「项目、待办」，筛了项目按「模块、待办」。</li>
           <li>3 列：默认「项目、模块、待办」，单元格可空。</li>
           <li>4 列：默认「项目、模块、待办、创建时间」。</li>
@@ -312,7 +341,7 @@ async function runImport(): Promise<void> {
         <ul class="mt-1 list-disc space-y-0.5 pl-4">
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
-          <li>项目必须是已有项目（不会自动创建），对不上的行会标红；每个项目最多 20 个模块，一次最多 500 行。</li>
+          <li>项目只匹配已有项目（不会自动创建），对不上的归入未分类；模块可以由 AI 新建，已有同名模块会复用；每个项目最多 20 个模块，一次最多 500 行。</li>
           <li>AI 识别会把功能名与问题描述合并成能独立看懂的待办标题；标题说清楚了详情就留空，详情只放标题之外的补充信息。也会按语义归并项目 / 模块，并识别创建时间、姓名与描述列，负责人、处理人不算姓名。内容较多时会自动分批识别，进度显示在按钮上。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
@@ -364,6 +393,9 @@ async function runImport(): Promise<void> {
         <p v-if="activePreview.duplicateOpenCount" class="ws-import-warn text-[12px] text-[#FF9F0A]">
           其中 {{ activePreview.duplicateOpenCount }} 条与现有未完成待办同名，将照常创建。
         </p>
+        <p v-if="ignoredProjectTitles.length" class="ws-import-warn ws-import-ignored text-[12px] text-[#FF9F0A]">
+          项目「{{ ignoredProjectTitles.join('」「') }}」不存在，已归入未分类（不会新建项目）。
+        </p>
 
         <div
           v-if="editing"
@@ -395,16 +427,11 @@ async function runImport(): Promise<void> {
                     v-model="row.project"
                     class="ws-import-cell w-[150px]"
                     :aria-label="`第 ${index + 1} 行项目`"
-                    :disabled="importing || finished"
+                    :disabled="importing || finished || lockedProject !== null"
                     @update:model-value="onProjectChange(row)"
                   >
                     <option value="">未分类</option>
                     <option v-for="title in projectTitles" :key="title" :value="title">{{ title }}</option>
-                    <option
-                      v-if="row.project && !projectTitles.includes(row.project)"
-                      :value="row.project"
-                      disabled
-                    >不存在：{{ row.project }}</option>
                   </Select>
                 </td>
                 <td class="px-2 py-1.5">

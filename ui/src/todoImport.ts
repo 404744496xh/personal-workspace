@@ -31,6 +31,7 @@ export interface ImportPreview {
   rows: ImportRow[]
   duplicateProjectTitles: string[]
   duplicateOpenCount: number
+  ignoredProjectTitles: string[]
 }
 
 export interface ResolveOptions {
@@ -204,7 +205,8 @@ function emptyPreview(): ImportPreview {
     skippedHeader: false,
     rows: [],
     duplicateProjectTitles: [],
-    duplicateOpenCount: 0
+    duplicateOpenCount: 0,
+    ignoredProjectTitles: []
   }
 }
 
@@ -351,6 +353,7 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
     let error = ''
     let projectTitle = row.project
     let projectName: string | null = null
+    let projectDropped = false
     let createdAt: string | null = null
     const reporter = row.reporter.trim()
     const detail = row.detail.trim()
@@ -366,11 +369,17 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
     }
 
     if (!error) {
-      if (!projectTitle) {
-        if (options.activeProject !== null && options.activeProject !== '') {
+      if (options.activeProject !== null) {
+        // 项目来自当前筛选（人工选择），粘贴里的项目列不参与判断
+        if (options.activeProject === '') {
+          projectTitle = ''
+          projectName = null
+        } else {
           projectName = options.activeProject
           projectTitle = options.projects.find((project) => project.name === projectName)?.title.trim() ?? ''
         }
+      } else if (!projectTitle) {
+        // 没有筛选且项目列为空：未分类
       } else {
         const matches = projectsByTitle.get(projectTitle) ?? []
         if (matches.length) {
@@ -379,12 +388,18 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
             preview.duplicateProjectTitles.push(projectTitle)
           }
         } else {
-          error = `项目「${projectTitle}」不存在，请改选已有项目或留空`
+          // 导入不创建项目：对不上的项目名直接丢弃，按未分类处理
+          if (!preview.ignoredProjectTitles.includes(projectTitle)) {
+            preview.ignoredProjectTitles.push(projectTitle)
+          }
+          projectTitle = ''
+          projectDropped = true
         }
       }
     }
 
     let module = row.module
+    if (projectDropped || options.activeProject === '') module = ''
     if (!error && !module && options.activeModule !== null && projectName !== null
       && projectName === options.activeProject) {
       module = options.activeModule
