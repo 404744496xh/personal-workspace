@@ -2,9 +2,11 @@ package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.AiImportRow;
 import java.text.Normalizer;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -16,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.concurrent.TimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -183,12 +186,12 @@ public class AiImportService {
             识别规则：
             1. 列顺序完全不固定：项目、模块、待办、创建时间、姓名可能出现在任意位置，也可能缺少某一列；不要按第几列来猜，必须逐列读内容判断角色。
             2. 判断依据：多行重复、范围较宽的名词短语通常是项目；范围更小、归属于项目的名词是模块；动词短语、可以执行的一件事是待办。表头可能缺失、错位或与内容不一致，以单元格内容为准。
-            3. 描述、状态、负责人、优先级等额外列全部忽略；明确是“姓名 / 提出人 / 反馈人 / 提单人 / 提交人 / 报告人 / 谁提的”的人名列才作为姓名，负责人、处理人、指派人不算姓名。日期列只有明确是“创建时间 / 创建日期 / 添加时间 / 录入时间 / 提交时间”，或语义上确实是任务建立时间时，才作为创建时间；截止日期、完成日期、更新日期不要当成创建时间。
+            3. 描述、状态、负责人、优先级等额外列全部忽略；明确是“姓名 / 提出人 / 反馈人 / 提单人 / 提交人 / 报告人 / 谁提的”的人名列才作为姓名，负责人、处理人、指派人不算姓名。日期列明确写“创建时间 / 创建日期 / 添加时间 / 录入时间 / 提交时间 / 日期 / 提出日期 / 反馈日期 / 报告日期”的作为创建时间；没有任何标注的日期在没有其它日期列时也按创建时间处理；截止日期、完成日期、更新日期不要当成创建时间。
             4. 不要臆造待办：每行输出一条，保留原文动作，不要加序号、合并或拆分。
             5. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；能和已有项目 / 模块对上时，严格按上面的「沿用判断」输出已有名称原文。
             6. 若原文缺少模块列，可根据待办语义补一个简短模块名（2–8 个字的名称短语，例如“讲师库”）；同一项目的同类待办使用同一个模块名；无法判断时留空。
             7. 不要把描述性长句当项目或模块，也不要把项目 / 模块名当成待办；不要因为列顺序不同就把项目和模块互换。
-            8. 创建时间只在原文明确给出时输出，不要用当前时间补齐；格式统一为“YYYY-MM-DD HH:mm”，只有日期时输出“YYYY-MM-DD”；原文没有创建时间时输出空字符串。
+            8. 创建时间只在原文明确给出时输出，不要用当前时间补齐；格式统一为“YYYY-MM-DD HH:mm”，只有日期时输出“YYYY-MM-DD”；没有年份的日期（例如“7月14日”）按当前年份 {{YEAR}} 补全；原文没有创建时间时输出空字符串。
             9. 姓名保留原文，不要自行补充部门或称谓；原文没有姓名列时输出空字符串。
             10. 长度限制：项目 ≤200 字、模块 ≤32 字、待办 ≤200 字、姓名 ≤64 字；项目、模块、姓名可以为空，空表示未分类 / 不分模块 / 未知。
             11. 输入超过 200 行时只输出前 200 行。
@@ -205,7 +208,7 @@ public class AiImportService {
             输出：
             [{"项目":"个人工作台","模块":"讲师库","待办":"调整归档页分类树","创建时间":"2026-11-09 08:30","姓名":""}]
             """);
-        return builder.toString();
+        return builder.toString().replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
     }
 
     private List<AiImportRow> parseRows(String output, List<WorkspaceProject> projects) {
@@ -396,7 +399,27 @@ public class AiImportService {
                 // Try the next format.
             }
         }
-        return null;
+        return normalizeYearlessDate(text);
+    }
+
+    // 模型可能原样返回“7月14日”；没有年份时按当年补全
+    private static final Pattern YEARLESS_DATE = Pattern.compile(
+        "^(\\d{1,2})月(\\d{1,2})日(?:\\s+(\\d{1,2}):(\\d{1,2})(?::(\\d{1,2}))?)?$");
+
+    private static String normalizeYearlessDate(String text) {
+        var matcher = YEARLESS_DATE.matcher(text);
+        if (!matcher.matches()) return null;
+        try {
+            var date = LocalDate.of(LocalDate.now().getYear(),
+                Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)));
+            var time = LocalTime.of(
+                matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3)),
+                matcher.group(4) == null ? 0 : Integer.parseInt(matcher.group(4)),
+                matcher.group(5) == null ? 0 : Integer.parseInt(matcher.group(5)));
+            return date.atTime(time).atZone(ZoneId.systemDefault()).toInstant().toString();
+        } catch (DateTimeException error) {
+            return null;
+        }
     }
 
     private static ApiException badOutput() {

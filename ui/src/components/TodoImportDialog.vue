@@ -360,6 +360,10 @@ async function runImport(): Promise<void> {
         v-if="!editing && preview.error"
         class="ws-import-error rounded-xl border border-[#FF3B30]/30 bg-[#FF3B30]/[0.06] px-3 py-2 text-[12px] leading-relaxed text-[#FF3B30]"
       >{{ preview.error }}</div>
+      <p
+        v-if="!editing && preview.error && text.trim()"
+        class="text-[11px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]"
+      >规则识别不了没关系，可以直接点下方「AI 识别」，按内容语义识别。</p>
 
       <template v-if="activePreview.rows.length">
         <div class="ws-import-summary flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#6e6e73] dark:text-[#98989d]">
