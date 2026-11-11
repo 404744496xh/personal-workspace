@@ -54,6 +54,7 @@ function onKeydown(event: KeyboardEvent): void {
 function onBlur(): void {
   focused.value = false
   error.value = ''
+  if (title.value.trim() !== '') void submit()
 }
 
 onUnmounted(() => {

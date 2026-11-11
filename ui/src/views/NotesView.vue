@@ -274,24 +274,25 @@ function closeEditor(): void {
   editing.value = null
 }
 
-async function save(payload: NotePayload): Promise<void> {
+async function persist(payload: NotePayload): Promise<boolean> {
+  if (saving.value) return false
   saving.value = true
   try {
     if (editing.value) {
       const updated = await updateNote(editing.value.name, payload)
       const index = notes.value.findIndex((item) => item.name === updated.name)
       if (index >= 0) notes.value[index] = toSummary(updated)
-      show('已保存')
+      editing.value = updated
     } else {
       const created = await createNote(payload)
       notes.value = [toSummary(created), ...notes.value]
-      show('已创建笔记')
+      editing.value = created
     }
     writeCache('notes', notes.value)
-    editorOpen.value = false
-    editing.value = null
+    return true
   } catch (err) {
     handleError(err)
+    return false
   } finally {
     saving.value = false
   }
@@ -324,10 +325,10 @@ onMounted(() => {
       :projects="projects"
       :todos="todos"
       :saving="saving"
+      :persist="persist"
       :default-project="createDefaults.project"
       :default-module="createDefaults.module"
       :default-todo="createDefaults.todo"
-      @save="save"
       @close="closeEditor"
     />
 

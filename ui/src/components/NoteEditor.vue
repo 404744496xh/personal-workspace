@@ -15,13 +15,13 @@ const props = defineProps<{
   projects: Project[]
   todos: Todo[]
   saving: boolean
+  persist: (payload: NotePayload) => Promise<boolean>
   defaultProject?: string
   defaultModule?: string
   defaultTodo?: string
 }>()
 
 const emit = defineEmits<{
-  save: [payload: NotePayload]
   close: []
 }>()
 
@@ -61,18 +61,31 @@ let outlineTimer: number | undefined
 let flyoutTimer: number | undefined
 let inlineHtmlTimer: number | undefined
 
+function snapshotOf(payload: NotePayload): string {
+  return JSON.stringify({
+    title: payload.title,
+    content: payload.content,
+    project: payload.project ?? '',
+    module: payload.module ?? '',
+    todos: [...(payload.todos ?? [])].sort()
+  })
+}
+
 function snapshot(): string {
   return JSON.stringify({
-    title: title.value,
+    title: title.value.trim(),
     content: content.value,
     project: project.value,
-    module: module.value,
+    module: project.value ? module.value.trim() : '',
     todos: [...selectedTodos.value].sort()
   })
 }
 
 const baseline = ref(snapshot())
 const dirty = computed(() => snapshot() !== baseline.value)
+const autoStatus = ref('')
+let autoTimer: ReturnType<typeof setTimeout> | undefined
+let editSeq = 0
 
 const projectTitle = computed(
   () => props.projects.find((item) => item.name === project.value)?.title ?? ''
@@ -285,15 +298,70 @@ async function handleUpload(files: File[]): Promise<string | null> {
   return null
 }
 
-function requestClose(): void {
-  if (props.saving) return
-  // Vditor 的 input 回调有约 400ms 防抖，先同步取值再判断是否有改动
+interface EditorPayload extends NotePayload {
+  title: string
+}
+
+function buildPayload(): EditorPayload | null {
+  // Vditor 的 input 回调有约 400ms 防抖，落盘前先同步取值
   if (ready.value) content.value = vditor.value?.getValue() ?? content.value
-  if (dirty.value) {
+  const titleValue = title.value.trim()
+  if (!titleValue) return null
+  return {
+    title: titleValue,
+    content: content.value,
+    tags: props.note?.tags ?? [],
+    project: project.value || null,
+    module: project.value ? module.value.trim() || null : null,
+    todos: [...selectedTodos.value]
+  }
+}
+
+function markAutoSaved(): void {
+  autoStatus.value = `已自动保存 ${new Date().toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit'
+  })}`
+}
+
+function scheduleAutoSave(): void {
+  if (!ready.value) return
+  editSeq += 1
+  autoStatus.value = ''
+  window.clearTimeout(autoTimer)
+  autoTimer = window.setTimeout(() => {
+    void autoSave(editSeq)
+  }, 900)
+}
+
+async function autoSave(seq: number): Promise<void> {
+  window.clearTimeout(autoTimer)
+  if (!ready.value || props.saving || !dirty.value) return
+  const payload = buildPayload()
+  if (!payload) return
+  const savedSnapshot = snapshotOf(payload)
+  if (await props.persist(payload)) {
+    baseline.value = savedSnapshot
+    markAutoSaved()
+    // 保存期间又有新输入时，再排一次；失败则等用户下次输入，避免无休止重试
+    if (editSeq !== seq && dirty.value) scheduleAutoSave()
+  }
+}
+
+async function requestClose(): Promise<void> {
+  if (props.saving) return
+  window.clearTimeout(autoTimer)
+  if (ready.value) content.value = vditor.value?.getValue() ?? content.value
+  if (!dirty.value) {
+    emit('close')
+    return
+  }
+  const payload = buildPayload()
+  if (!payload) {
     confirmDiscard.value = true
     return
   }
-  emit('close')
+  if (await props.persist(payload)) emit('close')
 }
 
 function discardAndClose(): void {
@@ -301,23 +369,17 @@ function discardAndClose(): void {
   emit('close')
 }
 
-function submit(): void {
+async function submit(): Promise<void> {
   if (props.saving || !ready.value) return
-  const titleValue = title.value.trim()
-  if (!titleValue) {
+  if (!title.value.trim()) {
     localError.value = '请输入笔记标题'
     return
   }
   localError.value = ''
-  content.value = vditor.value?.getValue() ?? content.value
-  emit('save', {
-    title: titleValue,
-    content: content.value,
-    tags: props.note?.tags ?? [],
-    project: project.value || null,
-    module: project.value ? module.value.trim() || null : null,
-    todos: [...selectedTodos.value]
-  })
+  window.clearTimeout(autoTimer)
+  const payload = buildPayload()
+  if (!payload) return
+  if (await props.persist(payload)) emit('close')
 }
 
 function applyProps(value: { project: string; module: string; todos: string[] }): void {
@@ -431,7 +493,13 @@ watch(outlineHidden, (hidden) => {
   applyOutline()
 })
 
+watch([title, content, project, module, selectedTodos], scheduleAutoSave, { deep: true })
+watch(ready, (value) => {
+  if (value) scheduleAutoSave()
+})
+
 onBeforeUnmount(() => {
+  window.clearTimeout(autoTimer)
   window.clearTimeout(outlineTimer)
   window.clearTimeout(flyoutTimer)
   window.clearTimeout(inlineHtmlTimer)
@@ -491,7 +559,9 @@ onBeforeUnmount(() => {
         <span v-if="uploading" class="text-[12px] font-medium text-[#007AFF] dark:text-[#64B5FF]" role="status">
           图片上传中…
         </span>
-        <Button variant="ghost" size="sm" :disabled="saving" @click="requestClose">取消</Button>
+        <span v-else-if="autoStatus" class="text-[12px] text-[#6e6e73] dark:text-[#98989d]" role="status">
+          {{ autoStatus }}
+        </span>
         <Button
           variant="primary"
           size="sm"
@@ -584,8 +654,8 @@ onBeforeUnmount(() => {
 
   <ConfirmDialog
     v-if="confirmDiscard"
-    title="放弃修改"
-    message="当前笔记有未保存的修改，确定放弃？"
+    title="放弃新笔记"
+    message="新笔记还没有标题，无法自动保存，确定放弃？"
     confirm-text="放弃"
     @confirm="discardAndClose"
     @close="confirmDiscard = false"
