@@ -206,20 +206,34 @@ const hoverLabel = computed(() => {
   const weekday = WEEKDAYS[(date.getDay() + 6) % 7]
   return `${date.getMonth() + 1} 月 ${date.getDate()} 日 · 周${weekday}`
 })
-const hoverTodos = computed(() => {
-  if (!hoverKey.value) return []
+type HoverKind = 'created' | 'completed' | 'dismissed'
+const HOVER_KIND: Record<HoverKind, { label: string; cls: string }> = {
+  created: { label: '新增', cls: 'text-[#007AFF] dark:text-[#64B5FF]' },
+  completed: { label: '完成', cls: 'text-[#34C759] dark:text-[#30D158]' },
+  dismissed: { label: '不用处理', cls: 'text-[#8e8e93] dark:text-[#98989d]' }
+}
+const hoverEntries = computed(() => {
+  if (!hoverKey.value) return [] as { kind: HoverKind; title: string }[]
   const key = hoverKey.value
-  return props.todos
-    .flatMap((todo) => {
-      const titles: string[] = []
-      if (todo.createdAt && formatDate(todo.createdAt) === key) titles.push(`+ ${todo.title}`)
-      if (todo.completedAt && formatDate(todo.completedAt) === key) titles.push(`✓ ${todo.title}`)
-      const dismissedAt = todo.dismissed ? (todo.dismissedAt || todo.createdAt) : null
-      if (dismissedAt && formatDate(dismissedAt) === key) titles.push(`− ${todo.title}`)
-      return titles
-    })
-    .slice(0, 4)
+  const buckets: Record<HoverKind, { kind: HoverKind; title: string }[]> = {
+    created: [], completed: [], dismissed: []
+  }
+  for (const todo of props.todos) {
+    if (todo.createdAt && formatDate(todo.createdAt) === key) {
+      buckets.created.push({ kind: 'created', title: todo.title })
+    }
+    if (todo.completedAt && formatDate(todo.completedAt) === key) {
+      buckets.completed.push({ kind: 'completed', title: todo.title })
+    }
+    const dismissedAt = todo.dismissed ? (todo.dismissedAt || todo.createdAt) : null
+    if (dismissedAt && formatDate(dismissedAt) === key) {
+      buckets.dismissed.push({ kind: 'dismissed', title: todo.title })
+    }
+  }
+  return [...buckets.created, ...buckets.completed, ...buckets.dismissed]
 })
+const hoverShown = computed(() => hoverEntries.value.slice(0, 6))
+const hoverMore = computed(() => hoverEntries.value.length - hoverShown.value.length)
 const hoverIndex = computed(() =>
   trendPoints.value.findIndex((day) => day.key === hoverKey.value))
 
@@ -480,8 +494,12 @@ function openStaleTodos(): void {
             <span class="text-[#34C759] dark:text-[#30D158]">完成 {{ hoverDay.completed }}</span>
             <span class="text-[#8e8e93] dark:text-[#98989d]">不用处理 {{ hoverDay.dismissed }}</span>
           </p>
-          <ul v-if="hoverTodos.length" class="mt-1.5 flex flex-col gap-0.5 text-[#6e6e73] dark:text-[#98989d]">
-            <li v-for="(title, index) in hoverTodos" :key="index" class="truncate">{{ title }}</li>
+          <ul v-if="hoverShown.length" class="mt-1.5 flex flex-col gap-0.5 text-[#6e6e73] dark:text-[#98989d]">
+            <li v-for="(entry, index) in hoverShown" :key="index" class="flex items-baseline gap-1.5">
+              <span class="shrink-0" :class="HOVER_KIND[entry.kind].cls">{{ HOVER_KIND[entry.kind].label }}</span>
+              <span class="truncate">{{ entry.title }}</span>
+            </li>
+            <li v-if="hoverMore > 0">还有 {{ hoverMore }} 条…</li>
           </ul>
         </div>
       </div>
