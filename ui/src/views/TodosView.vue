@@ -1722,9 +1722,8 @@ onUnmounted(() => {
                 />
               </label>
               <div
-                class="ws-todo-body min-w-0 flex-1 py-2.5"
-                :class="{ 'cursor-pointer': selecting }"
-                @click="selecting && toggleSelect(todo.name)"
+                class="ws-todo-body min-w-0 flex-1 cursor-pointer py-2.5"
+                @click="selecting ? toggleSelect(todo.name) : openEdit(todo)"
               >
                 <div class="ws-todo-top flex items-baseline gap-2">
                   <h4
@@ -1824,16 +1823,6 @@ onUnmounted(() => {
                       stroke="currentColor"
                       stroke-width="1.4"
                       stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </Button>
-                <Button variant="ghost" size="icon" aria-label="编辑" title="编辑" @click="openEdit(todo)">
-                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path
-                      d="M10.8 2.6a1.4 1.4 0 012 2L5 12.4l-2.6.6.6-2.6 7.8-7.8z"
-                      stroke="currentColor"
-                      stroke-width="1.4"
                       stroke-linejoin="round"
                     />
                   </svg>
