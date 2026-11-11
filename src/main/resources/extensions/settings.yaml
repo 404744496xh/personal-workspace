@@ -12,3 +12,18 @@ spec:
           label: 折叠全部快捷键
           help: 依次按下的键，用 + 分隔（如 z+d+v）。在工作台且焦点不在输入框或编辑器时生效，用于折叠/展开侧栏与时间筛选，不影响笔记内部。
           value: z+d+v
+    - group: ai
+      label: AI 识别
+      formSchema:
+        - $formkit: text
+          name: aiBaseUrl
+          label: 接口地址（OpenAI 兼容）
+          help: 例如 https://api.deepseek.com/v1、https://dashscope.aliyuncs.com/compatible-mode/v1，不需要带 /chat/completions。
+        - $formkit: text
+          name: aiModel
+          label: 模型名
+          help: 例如 deepseek-chat、qwen-plus、gpt-4o-mini。
+        - $formkit: password
+          name: aiApiKey
+          label: API Key
+          help: 只保存在 Halo 后台插件设置里，仅在服务端调用时使用；留空则关闭 AI 识别。

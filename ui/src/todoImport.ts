@@ -248,8 +248,8 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
   return resolveRows(parsed, options, chosen?.label ?? '单列', skippedHeader)
 }
 
-function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimiter: string,
-  skippedHeader: boolean): ImportPreview {
+export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimiter = 'AI 识别',
+  skippedHeader = false): ImportPreview {
   const preview: ImportPreview = {
     ...emptyPreview(),
     delimiter,

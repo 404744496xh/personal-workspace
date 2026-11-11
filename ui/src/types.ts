@@ -114,6 +114,16 @@ export interface SearchResponse {
   hits: SearchHit[]
 }
 
+export interface AiImportRow {
+  project: string
+  module: string
+  title: string
+}
+
+export interface AiImportResponse {
+  rows: AiImportRow[]
+}
+
 export interface BackupTodo {
   name: string | null
   title: string

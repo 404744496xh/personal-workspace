@@ -1,4 +1,5 @@
 import type {
+  AiImportResponse,
   BackupCounts,
   BackupData,
   Note,
@@ -204,4 +205,36 @@ export function importBackup(payload: BackupData, replace: boolean): Promise<Bac
     method: 'POST',
     body: JSON.stringify(payload)
   })
+}
+
+export async function aiImport(text: string): Promise<AiImportResponse> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json'
+  }
+  // 页面渲染时注入的 CSRF token（Halo 用 XOR 编码，不能直接用 cookie 值）
+  const token = document.getElementById('workspace-app')?.dataset.csrf
+  if (token) headers['X-XSRF-TOKEN'] = token
+  const response = await fetch('/workspace/api/ai-import', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers,
+    body: JSON.stringify({ text })
+  })
+  if (response.status === 401) {
+    throw new ApiError(401, 'UNAUTHORIZED', '请先登录')
+  }
+  if (!response.ok) {
+    let message = '请求失败，请稍后重试'
+    let code = `HTTP_${response.status}`
+    try {
+      const body = await response.json()
+      if (body?.error?.message) message = body.error.message
+      if (body?.error?.code) code = body.error.code
+    } catch {
+      // Keep the generic message when the response is not JSON.
+    }
+    throw new ApiError(response.status, code, message)
+  }
+  return response.json() as Promise<AiImportResponse>
 }
