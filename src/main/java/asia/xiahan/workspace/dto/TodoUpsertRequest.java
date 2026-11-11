@@ -14,6 +14,7 @@ public record TodoUpsertRequest(
     @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String dueDate,
     Boolean completed,
     Boolean dismissed,
+    @Size(max = 40) String createdAt,
     @Size(max = 64) String owner
 ) {
 }

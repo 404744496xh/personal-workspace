@@ -73,6 +73,9 @@ public class WorkspaceTodo extends AbstractExtension {
         @Schema(description = "Dismiss time in ISO-8601, written by the server")
         private String dismissedAt;
 
+        @Schema(description = "Custom creation time in ISO-8601; falls back to metadata time")
+        private String createdAt;
+
         public String getOwner() {
             return owner;
         }
@@ -167,6 +170,14 @@ public class WorkspaceTodo extends AbstractExtension {
 
         public void setDismissedAt(String dismissedAt) {
             this.dismissedAt = dismissedAt;
+        }
+
+        public String getCreatedAt() {
+            return createdAt;
+        }
+
+        public void setCreatedAt(String createdAt) {
+            this.createdAt = createdAt;
         }
     }
 }

@@ -11,6 +11,9 @@ import asia.xiahan.workspace.dto.TodoQuery;
 import asia.xiahan.workspace.dto.TodoUpsertRequest;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -566,6 +569,9 @@ public class WorkspaceDataAccess {
         spec.setProject(normalizeProject(request.project()));
         spec.setModule(normalizeModule(request.project(), request.module()));
         spec.setDueDate(normalizeDueDate(request.dueDate()));
+        if (creating || request.createdAt() != null) {
+            spec.setCreatedAt(normalizeCreatedAt(request.createdAt()));
+        }
         var requestDismissed = Boolean.TRUE.equals(request.dismissed());
         if (requestDismissed && Boolean.TRUE.equals(request.completed())) {
             throw ApiException.badRequest("completed 与 dismissed 不能同时为 true");
@@ -717,6 +723,26 @@ public class WorkspaceDataAccess {
             return LocalDate.parse(dueDate.trim()).toString();
         } catch (DateTimeParseException error) {
             throw ApiException.badRequest("截止日期格式应为 YYYY-MM-DD");
+        }
+    }
+
+    private static String normalizeCreatedAt(String createdAt) {
+        if (createdAt == null || createdAt.isBlank()) {
+            return null;
+        }
+        var text = createdAt.trim();
+        try {
+            return OffsetDateTime.parse(text).toInstant().toString();
+        } catch (DateTimeParseException ignored) {
+            // Try a local date-time without an offset next.
+        }
+        try {
+            return LocalDateTime.parse(text)
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toString();
+        } catch (DateTimeParseException error) {
+            throw ApiException.badRequest("创建时间格式应为 ISO-8601，例如 2026-11-10T16:46:00+08:00");
         }
     }
 

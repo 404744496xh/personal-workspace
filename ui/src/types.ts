@@ -41,6 +41,7 @@ export interface TodoPayload {
   dueDate: string | null
   completed: boolean
   dismissed?: boolean
+  createdAt?: string | null
 }
 
 export interface ProjectPayload {
@@ -118,6 +119,7 @@ export interface AiImportRow {
   project: string
   module: string
   title: string
+  createdAt?: string | null
 }
 
 export interface AiImportResponse {

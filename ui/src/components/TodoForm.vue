@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Priority, Project, Todo, TodoPayload } from '../types'
 import { formatDateTime } from '../utils'
+import { localDateTimeToIso, toDateTimeLocal } from '../datetime'
 import Button from './ui/Button.vue'
 import Input from './ui/Input.vue'
 import Select from './ui/Select.vue'
@@ -26,6 +27,8 @@ const priority = ref<Priority>(props.todo?.priority ?? 'MEDIUM')
 const project = ref(props.todo?.project ?? props.defaultProject ?? '')
 const module = ref(props.todo?.module ?? props.defaultModule ?? '')
 const dueDate = ref(props.todo?.dueDate ?? '')
+const createdAt = ref(toDateTimeLocal(props.todo?.createdAt)
+  || toDateTimeLocal(new Date().toISOString()))
 const completed = ref(props.todo?.completed ?? false)
 const localError = ref('')
 
@@ -70,6 +73,11 @@ function submit(): void {
     localError.value = '截止日期格式应为 YYYY-MM-DD'
     return
   }
+  const createdAtIso = localDateTimeToIso(createdAt.value)
+  if (!createdAtIso) {
+    localError.value = '请选择有效的创建时间'
+    return
+  }
   localError.value = ''
   emit('submit', {
     title: titleValue,
@@ -78,7 +86,8 @@ function submit(): void {
     project: project.value || null,
     module: module.value || null,
     dueDate: dueDate.value || null,
-    completed: completed.value
+    completed: completed.value,
+    createdAt: createdAtIso
   })
 }
 
@@ -172,6 +181,15 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             />
           </label>
         </div>
+
+        <label class="ws-field flex flex-col gap-1.5">
+          <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">创建时间</span>
+          <input
+            v-model="createdAt"
+            class="ws-created-input h-11 w-full rounded-xl border border-black/[0.08] bg-white/80 px-3.5 text-[14px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:[color-scheme:dark]"
+            type="datetime-local"
+          />
+        </label>
 
         <label
           class="ws-check-row flex min-h-11 items-center gap-3 text-[13px] text-[#6e6e73] dark:text-[#98989d]"

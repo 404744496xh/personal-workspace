@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { aiImport, ApiError, createProject, createTodo, updateProject } from '../api'
 import type { Project } from '../types'
-import { messageOf } from '../utils'
+import { formatDateTime, messageOf } from '../utils'
+import { toDateTimeLocal } from '../datetime'
 import { parseImport, resolveRows } from '../todoImport'
 import Modal from './ui/Modal.vue'
 import Button from './ui/Button.vue'
@@ -14,6 +15,7 @@ interface EditRow {
   project: string
   module: string
   title: string
+  createdAtLocal: string
 }
 
 const props = defineProps<{
@@ -40,6 +42,25 @@ const aiBusy = ref(false)
 const aiError = ref('')
 const editing = ref(false)
 const editRows = ref<EditRow[]>([])
+const helpOpen = ref(false)
+const copiedHint = ref('')
+
+const templateText = [
+  '项目\t模块\t待办\t创建时间',
+  '讲师库管理\t讲师库\t新增内部讲师\t2026-11-10 16:46',
+  '个人工作台\t前端\t调整归档页分类树\t2026-11-09 09:30',
+  '\t\t买咖啡豆\t'
+].join('\n')
+
+async function copyTemplate(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(templateText)
+    copiedHint.value = '已复制'
+  } catch {
+    copiedHint.value = '复制失败'
+  }
+  window.setTimeout(() => { copiedHint.value = '' }, 1800)
+}
 
 const resolveOptions = () => ({
   projects: props.projects,
@@ -55,11 +76,13 @@ const resolvedEdit = computed(() => resolveRows(
     line: index + 1,
     project: row.project.trim(),
     module: row.module.trim(),
-    title: row.title.trim()
+    title: row.title.trim(),
+    createdAt: row.createdAtLocal || null
   })),
   resolveOptions()
 ))
 const activePreview = computed(() => editing.value ? resolvedEdit.value : preview.value)
+const showCreatedColumn = computed(() => activePreview.value.rows.some((row) => row.createdAt))
 const validRows = computed(() => activePreview.value.rows.filter((row) => !row.error))
 const errorRows = computed(() => activePreview.value.rows.filter((row) => row.error))
 const canImport = computed(() => !importing.value && !finished.value && !aiBusy.value
@@ -134,7 +157,8 @@ async function runAi(): Promise<void> {
     editRows.value = response.rows.map((row) => ({
       project: row.project.trim(),
       module: row.module.trim(),
-      title: row.title.trim()
+      title: row.title.trim(),
+      createdAtLocal: toDateTimeLocal(row.createdAt)
     }))
     editing.value = true
   } catch (err) {
@@ -231,7 +255,8 @@ async function runImport(): Promise<void> {
           project: projectName,
           module: row.module || null,
           dueDate: null,
-          completed: false
+          completed: false,
+          createdAt: row.createdAt ?? null
         })
         results.value.set(row.line, 'ok')
       } catch (err) {
@@ -256,14 +281,57 @@ async function runImport(): Promise<void> {
 
 <template>
   <Modal title="粘贴导入待办" size="wide" @close="onClose">
+    <template #actions>
+      <div class="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ws-import-help"
+          :aria-expanded="helpOpen"
+          aria-label="导入说明与模板"
+          title="导入说明与模板"
+          @click="helpOpen = !helpOpen"
+        >
+          <span class="text-[15px] font-semibold" aria-hidden="true">?</span>
+        </Button>
+        <Button variant="ghost" size="sm" :disabled="importing" @click="emit('close')">关闭</Button>
+      </div>
+    </template>
     <div class="flex flex-col gap-3">
       <p class="text-[12px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-        从 Excel 复制粘贴：1 列只填待办；2 列按「项目、待办」或「模块、待办」识别，有表头按表头，没有表头时当前筛了项目就按「模块、待办」；3 列为项目、模块、待办，单元格可留空。列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，结果可以修改。{{ contextHint }}
+        从 Excel 复制粘贴：1 列只填待办；2 列按「项目、待办」或「模块、待办」识别，有表头按表头，没有表头时当前筛了项目就按「模块、待办」；3 列为项目、模块、待办；4 列或带表头时可在最后加「创建时间」。列数或分隔符有歧义时不导入。「AI 识别」可归并写法不同的项目 / 模块，结果可以修改。{{ contextHint }}
       </p>
+      <div
+        v-if="helpOpen"
+        class="ws-import-help-panel max-h-[420px] overflow-y-auto rounded-xl border border-black/[0.06] bg-black/[0.02] p-3 text-[12px] leading-relaxed text-[#3a3a3c] dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#d1d1d6]"
+      >
+        <div class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">列规则</div>
+        <ul class="mt-1 list-disc space-y-0.5 pl-4">
+          <li>1 列：全部作为待办标题；当前筛了项目 / 模块就归入当前筛选。</li>
+          <li>2 列：有表头按表头；无表头时没筛项目按「项目、待办」，筛了项目按「模块、待办」。</li>
+          <li>3 列：默认「项目、模块、待办」，单元格可空。</li>
+          <li>4 列：默认「项目、模块、待办、创建时间」。</li>
+          <li>表头可显式写明列含义，例如「项目、待办、创建时间」；表头行会自动跳过。</li>
+        </ul>
+        <div class="mt-2 font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">格式说明</div>
+        <ul class="mt-1 list-disc space-y-0.5 pl-4">
+          <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
+          <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
+          <li>项目不存在时可自动创建；每个项目最多 20 个模块，一次最多 500 行。</li>
+          <li>AI 识别会按语义归并项目 / 模块，并识别存在的创建时间。</li>
+        </ul>
+        <div class="mt-2 flex items-center justify-between">
+          <span class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">模板</span>
+          <Button variant="ghost" size="sm" class="ws-import-copy" @click="copyTemplate">
+            {{ copiedHint || '复制模板' }}
+          </Button>
+        </div>
+        <pre class="ws-import-template mt-1 overflow-x-auto whitespace-pre rounded-lg bg-white/70 p-2 font-mono text-[11px] leading-relaxed text-[#3a3a3c] dark:bg-black/20 dark:text-[#d1d1d6]">{{ templateText }}</pre>
+      </div>
       <Textarea
         v-model="text"
         class="ws-import-text min-h-[150px] font-mono text-[13px]"
-        placeholder="项目	模块	待办"
+        placeholder="项目	模块	待办	创建时间"
         aria-label="粘贴待办数据"
         :disabled="importing || finished"
       />
@@ -319,6 +387,7 @@ async function runImport(): Promise<void> {
                 <th class="px-3 py-2 font-medium">项目</th>
                 <th class="px-3 py-2 font-medium">模块</th>
                 <th class="px-3 py-2 font-medium">待办</th>
+                <th class="px-3 py-2 font-medium">创建时间</th>
                 <th class="px-3 py-2 font-medium">状态</th>
                 <th class="px-2 py-2"></th>
               </tr>
@@ -365,6 +434,15 @@ async function runImport(): Promise<void> {
                     :disabled="importing || finished"
                   />
                 </td>
+                <td class="px-2 py-1.5">
+                  <Input
+                    v-model="row.createdAtLocal"
+                    class="ws-import-cell w-[166px]"
+                    type="datetime-local"
+                    :aria-label="`第 ${index + 1} 行创建时间`"
+                    :disabled="importing || finished"
+                  />
+                </td>
                 <td
                   class="max-w-[160px] truncate px-3 py-1.5"
                   :class="editError(index) ? 'text-[#FF3B30]' : 'text-[#6e6e73] dark:text-[#98989d]'"
@@ -400,6 +478,7 @@ async function runImport(): Promise<void> {
                 <th class="px-3 py-2 font-medium">项目</th>
                 <th class="px-3 py-2 font-medium">模块</th>
                 <th class="px-3 py-2 font-medium">待办</th>
+                <th v-if="showCreatedColumn" class="px-3 py-2 font-medium">创建时间</th>
                 <th class="px-3 py-2 font-medium">状态</th>
               </tr>
             </thead>
@@ -416,6 +495,9 @@ async function runImport(): Promise<void> {
                 </td>
                 <td class="max-w-[120px] truncate px-3 py-1.5" :title="row.module">{{ row.module || '—' }}</td>
                 <td class="max-w-[260px] truncate px-3 py-1.5" :title="row.title">{{ row.title || '—' }}</td>
+                <td v-if="showCreatedColumn" class="ws-import-created whitespace-nowrap px-3 py-1.5 tabular-nums">
+                  {{ formatDateTime(row.createdAt) || '—' }}
+                </td>
                 <td
                   class="max-w-[220px] truncate px-3 py-1.5"
                   :class="row.error || (results.get(row.line) && results.get(row.line) !== 'ok')

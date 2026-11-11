@@ -19,7 +19,10 @@ public record TodoView(
 
     public static TodoView of(WorkspaceTodo todo) {
         var spec = todo.getSpec();
-        var created = todo.getMetadata().getCreationTimestamp();
+        var created = spec.getCreatedAt() != null
+            ? spec.getCreatedAt()
+            : todo.getMetadata().getCreationTimestamp() == null
+                ? null : todo.getMetadata().getCreationTimestamp().toString();
         return new TodoView(
             todo.getMetadata().getName(),
             spec.getTitle(),
@@ -32,7 +35,7 @@ public record TodoView(
             spec.getCompletedAt(),
             spec.isDismissed(),
             spec.getDismissedAt(),
-            created == null ? null : created.toString()
+            created
         );
     }
 }

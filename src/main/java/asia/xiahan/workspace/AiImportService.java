@@ -2,6 +2,12 @@ package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.AiImportRow;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -167,20 +173,21 @@ public class AiImportService {
             - 模块：项目内的功能分区，例如“讲师库”“排课”，比项目范围小。
             - 待办：可以执行的一件事，通常是动词短语，例如“新增内部讲师”。
             识别规则：
-            1. 输入可能来自 Excel，列数和分隔符不固定。先判断各列分别是项目、模块还是待办；只有这三类语义参与导入，描述、状态、日期、负责人、优先级等额外列全部忽略。
+            1. 输入可能来自 Excel，列数和分隔符不固定。先判断各列分别是项目、模块还是待办；描述、状态、负责人、优先级等额外列全部忽略；只有明确的“创建时间 / 创建日期 / 添加时间”列需要保留。
             2. 不要臆造待办：每行输出一条，保留原文动作，不要加序号、合并或拆分。
             3. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；已有项目和模块必须逐字使用下列名称。
             4. 若原文缺少模块列，可根据待办语义补一个简短模块名（2–8 个字的名称短语，例如“讲师库”）；同一项目的同类待办使用同一个模块名；无法判断时留空。
             5. 不要把描述性长句当项目或模块，也不要把项目 / 模块名当成待办。
-            6. 长度限制：项目 ≤200 字、模块 ≤32 字、待办 ≤200 字；项目、模块可以为空，空表示未分类 / 不分模块。
-            7. 输入超过 200 行时只输出前 200 行。
-            8. 只输出 JSON 数组，不要解释或 Markdown 代码块，格式：
-            [{"项目":"项目名或空字符串","模块":"模块名或空字符串","待办":"待办标题"}]
+            6. 创建时间只在原文明确给出时输出，不要用当前时间补齐；格式统一为“YYYY-MM-DD HH:mm”，只有日期时输出“YYYY-MM-DD”；原文没有创建时间时输出空字符串。
+            7. 长度限制：项目 ≤200 字、模块 ≤32 字、待办 ≤200 字；项目、模块可以为空，空表示未分类 / 不分模块。
+            8. 输入超过 200 行时只输出前 200 行。
+            9. 只输出 JSON 数组，不要解释或 Markdown 代码块，格式：
+            [{"项目":"项目名或空字符串","模块":"模块名或空字符串","待办":"待办标题","创建时间":"创建时间或空字符串"}]
             示例：
-            输入（制表符分隔，4 列）：
-            讲师库管理	讲师库	新增内部讲师	新增讲师，可以在红框处输入讲师名字，不用点搜索按钮
+            输入（制表符分隔，5 列）：
+            讲师库管理	讲师库	新增内部讲师	新增讲师，可以在红框处输入讲师名字	2026-11-10 16:46
             输出：
-            [{"项目":"讲师库管理","模块":"讲师库","待办":"新增内部讲师"}]
+            [{"项目":"讲师库管理","模块":"讲师库","待办":"新增内部讲师","创建时间":"2026-11-10 16:46"}]
             """);
         return builder.toString();
     }
@@ -208,7 +215,8 @@ public class AiImportService {
             rows.add(new AiImportRow(
                 firstText(item, "项目", "project").trim(),
                 firstText(item, "模块", "module").trim(),
-                title));
+                title,
+                normalizeCreatedAt(firstText(item, "创建时间", "创建日期", "createdAt", "created"))));
         }
         if (rows.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_GATEWAY, "AI_BAD_OUTPUT",
@@ -243,13 +251,55 @@ public class AiImportService {
             if (moduleByKey != null && !module.isBlank()) {
                 module = moduleByKey.getOrDefault(key(module), module);
             }
-            canonical.add(new AiImportRow(project, module, row.title()));
+            canonical.add(new AiImportRow(project, module, row.title(), row.createdAt()));
         }
         return canonical;
     }
 
     private static String key(String value) {
         return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+    }
+
+    private static final List<DateTimeFormatter> AI_DATE_TIMES = List.of(
+        DateTimeFormatter.ofPattern("yyyy-M-d H:mm"),
+        DateTimeFormatter.ofPattern("yyyy-M-d H:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy/M/d H:mm"),
+        DateTimeFormatter.ofPattern("yyyy/M/d H:mm:ss")
+    );
+    private static final List<DateTimeFormatter> AI_DATES = List.of(
+        DateTimeFormatter.ofPattern("yyyy-M-d"),
+        DateTimeFormatter.ofPattern("yyyy/M/d")
+    );
+
+    private static String normalizeCreatedAt(String value) {
+        var text = value == null ? "" : value.trim();
+        if (text.isEmpty()) return null;
+        try {
+            return OffsetDateTime.parse(text).toInstant().toString();
+        } catch (DateTimeParseException ignored) {
+            // Fall through to the local formats the model may return.
+        }
+        for (var formatter : AI_DATE_TIMES) {
+            try {
+                return LocalDateTime.parse(text, formatter)
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toString();
+            } catch (DateTimeParseException ignored) {
+                // Try the next format.
+            }
+        }
+        for (var formatter : AI_DATES) {
+            try {
+                return LocalDate.parse(text, formatter)
+                    .atStartOfDay(ZoneId.systemDefault())
+                    .toInstant()
+                    .toString();
+            } catch (DateTimeParseException ignored) {
+                // Try the next format.
+            }
+        }
+        return null;
     }
 
     private static ApiException badOutput() {
