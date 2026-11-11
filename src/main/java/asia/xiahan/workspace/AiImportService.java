@@ -262,7 +262,7 @@ public class AiImportService {
             3. 状态、负责人、优先级、功能、页面、菜单、分类等额外列直接忽略；只有描述、详情、说明、备注、问题描述、需求描述、问题现象这类内容才作为详情。详情可以适度总结提炼、分点排版（如 1. 2. 3.），只要意思不变；不要照抄客套话、重复内容和无意义的口水话，也不要编造原文没有的信息。详情必须是对这条需求 / bug 的具体描述；如果某列只是一个功能名、页面名、模块名，或内容与模块相同，不要把它当详情，详情留空。明确没有用的列可以直接丢掉，不要为了填满字段把无关内容塞进项目 / 模块 / 待办 / 详情。
             4. 待办标题要能独立看懂：如果原文只有短的功能名 / 页面名，真正内容在问题描述 / 需求描述列，就把两者合并成一句具体的标题，提炼出核心现象或期望，可以整理得更通顺，不必逐字照抄，但不要改变意思，也不要把整段长文原样塞进标题；标题已经说清楚时，详情留空，详情只放标题之外的复现步骤、截图说明或延伸信息，不要重复标题。每行只输出一条待办，不要加序号、合并或拆分。从 Excel 复制时，单元格内的换行会用双引号把整个单元格包起来；引号内的换行属于同一个单元格，不要当成新的一行，也不要把外层双引号写进结果。
             5. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；能和已有项目 / 模块对上时，严格按上面的「沿用判断」输出已有名称原文。
-            6. 模块是待办所属的业务分区（名词短语），必须填写，不能为空。优先归入上面同一项目已有的模块：只要已有模块覆盖这条待办的业务对象，就逐字输出已有模块名，例如已有「培训」「考试&调研」时，“培训机构”“编辑考试”“考试详情”“考试报名”应分别输出「培训」「考试&调研」「考试&调研」「考试&调研」。不要用“编辑 / 新增 / 添加 / 删除 / 查看 / 详情 / 列表 / 页面 / 导出 / 导入 / 设置”等动作或页面词直接当模块名；待办是“编辑 X”或“X 详情”时，模块应是 X 所属的业务分区，而不是“编辑 X”本身。现有模块确实都不覆盖时才起新的 2–6 字名词模块名；同一项目同类待办使用同一个模块名。
+            6. 模块是待办所属的业务分区（名词短语），必须填写，不能为空。优先归入上面同一项目已有的模块：只要已有模块覆盖这条待办的业务对象，就逐字输出已有模块名，例如已有「培训」「考试&调研」时，“培训机构”“编辑考试”“考试详情”“考试报名”应分别输出「培训」「考试&调研」「考试&调研」「考试&调研」。即使原文没有模块列、或模块列是空的，也必须根据「待办标题 + 详情」里的业务词判断属于哪个已有模块（如标题含“课程”就归入已有「课程」模块，含“分类树”就归入已有「分类树」模块），不得因此输出空字符串。不要用“编辑 / 新增 / 添加 / 删除 / 查看 / 详情 / 列表 / 页面 / 导出 / 导入 / 设置”等动作或页面词直接当模块名；待办是“编辑 X”或“X 详情”时，模块应是 X 所属的业务分区，而不是“编辑 X”本身。现有模块确实都不覆盖时才起新的 2–6 字名词模块名；同一项目同类待办使用同一个模块名。
             7. 不要把描述性长句当项目或模块，也不要把项目 / 模块名当成待办；不要因为列顺序不同就把项目和模块互换。
             8. 创建时间只在原文明确给出时输出，不要用当前时间补齐；明确写“创建时间 / 创建日期 / 添加时间 / 录入时间 / 提交时间 / 日期 / 提出日期 / 反馈日期 / 报告日期”的日期列作为创建时间，没有任何标注的日期在没有其它日期列时也按创建时间处理；截止日期、完成日期、更新日期不要当成创建时间。格式统一为“YYYY-MM-DD HH:mm”，只有日期时输出“YYYY-MM-DD”；没有年份的日期（例如“7月14日”）按当前年份 {{YEAR}} 补全；原文没有创建时间时输出空字符串。
             9. 只有明确是“姓名 / 提出人 / 反馈人 / 提单人 / 提交人 / 报告人 / 谁提的”的人名列才作为姓名；负责人、处理人、指派人不算姓名。姓名保留原文，不要自行补充部门或称谓；原文没有姓名列时输出空字符串。
@@ -360,10 +360,14 @@ public class AiImportService {
             if (moduleMatcher != null && !module.isBlank()) {
                 module = moduleMatcher.match(module);
             }
+            if (moduleMatcher != null && module.isBlank()) {
+                module = moduleMatcher.matchContent(row.title(), row.detail());
+            }
             // 模型偶尔把功能名 / 模块名当详情，或把已并入标题的描述再写一遍，重复时直接丢掉
             var detail = row.detail();
             var detailKey = key(detail);
             if (!detailKey.isEmpty() && (detailKey.equals(key(module))
+                || detailKey.equals(key(row.module()))
                 || detailKey.equals(key(project)) || key(row.title()).contains(detailKey))) {
                 detail = "";
             }
@@ -386,6 +390,11 @@ public class AiImportService {
     private static final List<String> ACTION_WORDS = List.of(
         "编辑", "新增", "添加", "删除", "查看", "详情", "列表", "页面", "导出", "导入",
         "设置", "配置", "查询", "审核", "发布", "预览", "修改", "更新", "维护", "管理", "搜索");
+
+    // 按内容补模块时跳过这些泛词，避免“列表/数据/问题”这类通用词误命中
+    private static final Set<String> CONTENT_STOP_TERMS = Set.of(
+        "列表", "页面", "详情", "数据", "问题", "功能", "优化", "调整", "增加", "修改", "编辑",
+        "管理", "系统", "平台", "模块", "统计", "操作", "导出", "导入", "设置", "配置", "查询");
 
     // 去掉“管理/系统”等通用后缀后仍至少保留 2 个字，避免把短名称削没
     private static String coreKey(String key) {
@@ -495,6 +504,39 @@ public class AiImportService {
                 }
             }
             return hit;
+        }
+
+        // 模型没给模块时，用标题 / 详情里的业务词补一个最贴近的已有模块
+        String matchContent(String title, String detail) {
+            var contentKey = key((title == null ? "" : title) + " " + (detail == null ? "" : detail));
+            if (contentKey.isEmpty()) return "";
+            String hit = null;
+            var best = 0;
+            for (var name : names) {
+                var nameKey = key(name);
+                var score = scoreContent(contentKey, nameKey);
+                for (var term : termsOf(name)) {
+                    score = Math.max(score, scoreContent(contentKey, term));
+                }
+                if (score == 0) continue;
+                if (score > best) {
+                    best = score;
+                    hit = name;
+                } else if (score == best && !name.equals(hit)) {
+                    return "";
+                }
+            }
+            return hit == null ? "" : hit;
+        }
+
+        private static int scoreContent(String contentKey, String term) {
+            var candidates = List.of(term, coreKey(term));
+            var score = 0;
+            for (var candidate : candidates) {
+                if (candidate.length() < 2 || CONTENT_STOP_TERMS.contains(candidate)) continue;
+                if (contentKey.contains(candidate)) score = Math.max(score, candidate.length());
+            }
+            return score;
         }
     }
 
