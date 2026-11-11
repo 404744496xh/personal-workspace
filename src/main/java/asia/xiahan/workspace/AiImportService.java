@@ -2,6 +2,12 @@ package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.AiImportRow;
 import java.text.Normalizer;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -22,12 +28,10 @@ import java.util.regex.Pattern;
 import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import run.halo.app.extension.ConfigMap;
 import run.halo.app.extension.ReactiveExtensionClient;
 import tools.jackson.databind.JsonNode;
@@ -44,6 +48,9 @@ public class AiImportService {
     private static final int MAX_PROJECTS_IN_PROMPT = 100;
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
     private static final Logger log = LoggerFactory.getLogger(AiImportService.class);
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .build();
 
     private final ReactiveExtensionClient client;
     private final WorkspaceDataAccess dataAccess;
@@ -106,6 +113,12 @@ public class AiImportService {
     }
 
     private Mono<String> callModel(AiSettings ai, String systemPrompt, String userText) {
+        return Mono.fromCallable(() -> callModelBlocking(ai, systemPrompt, userText))
+            .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    // JDK HttpClient 在容器内实测可正常访问模型接口；Reactor Netty 在该环境下会一直无响应
+    private String callModelBlocking(AiSettings ai, String systemPrompt, String userText) {
         var url = chatCompletionsUrl(ai.baseUrl());
         var body = Map.of(
             "model", ai.model(),
@@ -116,30 +129,38 @@ public class AiImportService {
                 Map.of("role", "user", "content", userText)
             ));
         log.info("AI request: url={}, model={}, chars={}", url, ai.model(), userText.length());
-        return WebClient.builder()
-            .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(4 * 1024 * 1024))
-            .build()
-            .post()
-            .uri(url)
-            .header(HttpHeaders.AUTHORIZATION, "Bearer " + ai.apiKey())
-            .contentType(MediaType.APPLICATION_JSON)
-            .accept(MediaType.APPLICATION_JSON)
-            .bodyValue(body)
-            .retrieve()
-            .onStatus(status -> status.isError(), response -> response.bodyToMono(String.class)
-                .defaultIfEmpty("")
-                .map(errorBody -> {
-                    log.warn("AI upstream error: status={}, body={}",
-                        response.statusCode().value(), truncate(errorBody));
-                    return new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR",
-                        "AI 接口调用失败（" + response.statusCode().value() + "）："
-                            + errorMessage(errorBody));
-                }))
-            .bodyToMono(JsonNode.class)
-            .map(this::readContent)
-            .onErrorMap(IllegalStateException.class,
-                error -> new ApiException(HttpStatus.BAD_GATEWAY, "AI_BAD_OUTPUT",
-                    "AI 返回内容无法解析，请重试或改用规则识别"));
+        try {
+            var request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(60))
+                .header("Authorization", "Bearer " + ai.apiKey())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                    JSON_MAPPER.writeValueAsString(body), StandardCharsets.UTF_8))
+                .build();
+            var response = HTTP_CLIENT.send(request,
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            var status = response.statusCode();
+            var responseBody = response.body();
+            if (status >= 400) {
+                log.warn("AI upstream error: status={}, body={}", status, truncate(responseBody));
+                throw new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR",
+                    "AI 接口调用失败（" + status + "）：" + errorMessage(responseBody));
+            }
+            return readContent(JSON_MAPPER.readTree(responseBody));
+        } catch (ApiException error) {
+            throw error;
+        } catch (HttpTimeoutException error) {
+            throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "AI_TIMEOUT",
+                "AI 接口响应超时，请减少行数或稍后重试");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR", "AI 接口调用被中断，请重试");
+        } catch (Exception error) {
+            log.warn("AI request failed: {}", error.toString());
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR",
+                "AI 接口调用失败：" + (error.getMessage() == null ? "未知错误" : error.getMessage()));
+        }
     }
 
     private static String chatCompletionsUrl(String baseUrl) {
