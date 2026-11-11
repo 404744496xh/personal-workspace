@@ -165,6 +165,16 @@ function removeEditRow(index: number): void {
   editRows.value.splice(index, 1)
 }
 
+async function requestAiChunk(chunk: string): Promise<AiImportRow[]> {
+  try {
+    return (await aiImport(chunk)).rows
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) throw err
+    // 网关超时或上游抖动时自动重试这一批，避免前面的批次白跑
+    return (await aiImport(chunk)).rows
+  }
+}
+
 async function runAi(): Promise<void> {
   if (aiBusy.value || importing.value || finished.value || !text.value.trim()) return
   aiBusy.value = true
@@ -175,8 +185,7 @@ async function runAi(): Promise<void> {
   try {
     const rows: AiImportRow[] = []
     for (let index = 0; index < chunks.length; index += 1) {
-      const response = await aiImport(chunks[index])
-      rows.push(...response.rows)
+      rows.push(...(await requestAiChunk(chunks[index])))
       aiProgress.value = { done: index + 1, total: chunks.length }
     }
     if (!rows.length) {
@@ -342,7 +351,7 @@ async function runImport(): Promise<void> {
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
           <li>项目只匹配已有项目（不会自动创建），对不上的归入未分类；模块可以由 AI 新建，已有同名模块会复用；每个项目最多 20 个模块，一次最多 500 行。</li>
-          <li>AI 识别会把功能名与问题描述合并成能独立看懂的待办标题；标题说清楚了详情就留空，详情只放标题之外的补充信息。也会按语义归并项目 / 模块，并识别创建时间、姓名与描述列，负责人、处理人不算姓名。内容较多时会自动分批识别，进度显示在按钮上。</li>
+          <li>AI 识别会把功能名与问题描述合并成能独立看懂的待办标题；标题说清楚了详情就留空，详情只放标题之外的补充信息，可以适度总结提炼、分点排版，意思不变。也会按语义归并项目 / 模块，并识别创建时间、姓名与描述列，负责人、处理人不算姓名。内容较多时会自动分批识别，单批失败自动重试一次，进度显示在按钮上。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
           <span class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">模板</span>

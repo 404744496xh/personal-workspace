@@ -225,14 +225,16 @@ export async function aiImport(text: string): Promise<AiImportResponse> {
     throw new ApiError(401, 'UNAUTHORIZED', '请先登录')
   }
   if (!response.ok) {
-    let message = '请求失败，请稍后重试'
+    let message = response.status >= 500
+      ? `请求失败（HTTP ${response.status}），可能是网关超时，请重试`
+      : '请求失败，请稍后重试'
     let code = `HTTP_${response.status}`
     try {
       const body = await response.json()
       if (body?.error?.message) message = body.error.message
       if (body?.error?.code) code = body.error.code
     } catch {
-      // Keep the generic message when the response is not JSON.
+      // Keep the gateway hint when the response is not JSON.
     }
     throw new ApiError(response.status, code, message)
   }
