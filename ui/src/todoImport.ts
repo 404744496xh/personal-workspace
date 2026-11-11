@@ -6,12 +6,14 @@ export const MAX_PROJECT_MODULES = 20
 export const MAX_MODULE_LENGTH = 32
 export const MAX_TITLE_LENGTH = 200
 export const MAX_REPORTER_LENGTH = 64
+export const MAX_DETAIL_LENGTH = 5000
 
 export interface ParsedRow {
   line: number
   project: string
   module: string
   title: string
+  detail: string
   createdAt: string | null
   reporter: string
 }
@@ -294,6 +296,7 @@ export function parseImport(source: string, options: ResolveOptions): ImportPrev
       project: values.project ?? '',
       module: values.module ?? '',
       title: values.title ?? '',
+      detail: '',
       createdAt: values.createdAt || null,
       reporter: values.reporter ?? ''
     }
@@ -327,9 +330,11 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
     let newProject = false
     let createdAt: string | null = null
     const reporter = row.reporter.trim()
+    const detail = row.detail.trim()
 
     if (!row.title) error = '缺少待办标题'
     else if (row.title.length > MAX_TITLE_LENGTH) error = `待办标题超过 ${MAX_TITLE_LENGTH} 个字符`
+    if (!error && detail.length > MAX_DETAIL_LENGTH) error = `详情超过 ${MAX_DETAIL_LENGTH} 个字符`
     if (!error && reporter.length > MAX_REPORTER_LENGTH) error = `姓名超过 ${MAX_REPORTER_LENGTH} 个字符`
     if (!error && row.createdAt) {
       const parsedAt = parseDateTimeInput(row.createdAt)
@@ -395,6 +400,7 @@ export function resolveRows(parsed: ParsedRow[], options: ResolveOptions, delimi
       project: projectTitle,
       module,
       title: row.title,
+      detail,
       createdAt,
       reporter,
       projectName,

@@ -121,6 +121,7 @@ export interface AiImportRow {
   project: string
   module: string
   title: string
+  detail?: string | null
   createdAt?: string | null
   reporter?: string | null
 }

@@ -15,6 +15,7 @@ interface EditRow {
   project: string
   module: string
   title: string
+  detail: string
   createdAtLocal: string
   reporter: string
 }
@@ -78,6 +79,7 @@ const resolvedEdit = computed(() => resolveRows(
     project: row.project.trim(),
     module: row.module.trim(),
     title: row.title.trim(),
+    detail: row.detail.trim(),
     createdAt: row.createdAtLocal || null,
     reporter: row.reporter.trim()
   })),
@@ -161,6 +163,7 @@ async function runAi(): Promise<void> {
       project: row.project.trim(),
       module: row.module.trim(),
       title: row.title.trim(),
+      detail: (row.detail ?? '').trim(),
       createdAtLocal: toDateTimeLocal(row.createdAt),
       reporter: (row.reporter ?? '').trim()
     }))
@@ -254,7 +257,7 @@ async function runImport(): Promise<void> {
         if (row.newProject && !projectName) throw new Error('项目创建失败')
         await createTodo({
           title: row.title,
-          detail: '',
+          detail: row.detail || '',
           priority: 'MEDIUM',
           project: projectName,
           module: row.module || null,
@@ -285,7 +288,7 @@ async function runImport(): Promise<void> {
 </script>
 
 <template>
-  <Modal title="粘贴导入待办" size="wide" @close="onClose">
+  <Modal title="粘贴导入待办" size="wide" class="max-w-[1360px]" @close="onClose">
     <template #actions>
       <div class="flex items-center gap-1">
         <Button
@@ -324,7 +327,7 @@ async function runImport(): Promise<void> {
           <li>分隔符：制表符、竖线、连续空格、逗号、分号、顿号；从 Excel 直接复制最稳。</li>
           <li>创建时间：2026-11-10、2026/11/10、2026-11-10 16:46；留空则用导入时间。</li>
           <li>项目不存在时可自动创建；每个项目最多 20 个模块，一次最多 500 行。</li>
-          <li>AI 识别会按语义归并项目 / 模块，并识别创建时间与姓名列；负责人、处理人不算姓名。</li>
+          <li>AI 识别会按语义归并项目 / 模块，并识别创建时间、姓名与描述列；描述写入待办详情，负责人、处理人不算姓名。</li>
         </ul>
         <div class="mt-2 flex items-center justify-between">
           <span class="font-medium text-[#1d1d1f] dark:text-[#f5f5f7]">模板</span>
@@ -388,7 +391,7 @@ async function runImport(): Promise<void> {
 
         <div
           v-if="editing"
-          class="ws-import-table max-h-[320px] overflow-y-auto rounded-xl border border-black/[0.06] dark:border-white/[0.08]"
+          class="ws-import-table max-h-[320px] overflow-auto rounded-xl border border-black/[0.06] dark:border-white/[0.08]"
         >
           <table class="w-full border-collapse text-left text-[12px]">
             <thead class="sticky top-0 bg-white/90 backdrop-blur dark:bg-[#1c1c1e]/90">
@@ -397,6 +400,7 @@ async function runImport(): Promise<void> {
                 <th class="px-3 py-2 font-medium">项目</th>
                 <th class="px-3 py-2 font-medium">模块</th>
                 <th class="px-3 py-2 font-medium">待办</th>
+                <th class="px-3 py-2 font-medium">详情</th>
                 <th class="px-3 py-2 font-medium">创建时间</th>
                 <th class="px-3 py-2 font-medium">姓名</th>
                 <th class="px-3 py-2 font-medium">状态</th>
@@ -442,6 +446,16 @@ async function runImport(): Promise<void> {
                     v-model="row.title"
                     class="ws-import-cell min-w-[180px]"
                     :aria-label="`第 ${index + 1} 行待办`"
+                    :disabled="importing || finished"
+                  />
+                </td>
+                <td class="px-2 py-1.5">
+                  <Textarea
+                    v-model="row.detail"
+                    class="ws-import-cell min-w-[220px]"
+                    rows="2"
+                    maxlength="5000"
+                    :aria-label="`第 ${index + 1} 行详情`"
                     :disabled="importing || finished"
                   />
                 </td>
