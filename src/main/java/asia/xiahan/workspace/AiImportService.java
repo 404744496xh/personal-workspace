@@ -1,6 +1,7 @@
 package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.AiImportRow;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -10,9 +11,11 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -168,6 +171,10 @@ public class AiImportService {
             builder.append('\n');
         }
         builder.append("""
+            沿用判断（优先级最高）：
+            - 上面列表是站点里已经存在的项目与模块。每输出一个项目 / 模块前，先把它和列表逐个比对；只要指的是同一个东西，就原样输出已有名称，不要保留自己的新写法。
+            - 同义叫法、简称、多字少字、词序不同、全角半角、空格标点差异，以及是否带“管理 / 系统 / 平台 / 模块 / 功能”等通用后缀，都算同一个东西。例如已有「讲师库管理：讲师库」，输入里的「讲师管理 / 讲师」应输出「讲师库管理 / 讲师库」。
+            - 只有确实是新的业务领域或新功能分区时才输出新名称；拿不准时也优先沿用已有名称，避免导入后多出重复项目。
             概念定义：
             - 项目：一个产品或工作领域，通常是名词短语，例如“讲师库管理”“个人工作台”。
             - 模块：项目内的功能分区，例如“讲师库”“排课”，比项目范围小。
@@ -177,7 +184,7 @@ public class AiImportService {
             2. 判断依据：多行重复、范围较宽的名词短语通常是项目；范围更小、归属于项目的名词是模块；动词短语、可以执行的一件事是待办。表头可能缺失、错位或与内容不一致，以单元格内容为准。
             3. 描述、状态、负责人、优先级等额外列全部忽略。日期列只有明确是“创建时间 / 创建日期 / 添加时间 / 录入时间 / 提交时间”，或语义上确实是任务建立时间时，才作为创建时间；截止日期、完成日期、更新日期不要当成创建时间。
             4. 不要臆造待办：每行输出一条，保留原文动作，不要加序号、合并或拆分。
-            5. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；已有项目和模块必须逐字使用下列名称。
+            5. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；能和已有项目 / 模块对上时，严格按上面的「沿用判断」输出已有名称原文。
             6. 若原文缺少模块列，可根据待办语义补一个简短模块名（2–8 个字的名称短语，例如“讲师库”）；同一项目的同类待办使用同一个模块名；无法判断时留空。
             7. 不要把描述性长句当项目或模块，也不要把项目 / 模块名当成待办；不要因为列顺序不同就把项目和模块互换。
             8. 创建时间只在原文明确给出时输出，不要用当前时间补齐；格式统一为“YYYY-MM-DD HH:mm”，只有日期时输出“YYYY-MM-DD”；原文没有创建时间时输出空字符串。
@@ -235,28 +242,27 @@ public class AiImportService {
         return canonicalize(rows, projects);
     }
 
-    // AI 偶发只差空格或大小写；能对上已有项目/模块时改回库里的名字，避免多建同名项
+    // AI 可能输出近义写法；能对上现有项目/模块时改回库里的名字，避免导入后多建重复项
     private static List<AiImportRow> canonicalize(List<AiImportRow> rows,
         List<WorkspaceProject> projects) {
-        var projectByKey = new HashMap<String, String>();
-        var modulesByProject = new HashMap<String, Map<String, String>>();
+        var projectNames = new ArrayList<String>();
+        var modulesByProject = new HashMap<String, NameMatcher>();
         for (var project : projects) {
             var spec = project.getSpec();
             if (spec == null || spec.getTitle() == null) continue;
-            projectByKey.putIfAbsent(key(spec.getTitle()), spec.getTitle());
+            projectNames.add(spec.getTitle());
             var modules = spec.getModules();
             if (modules == null || modules.isEmpty()) continue;
-            var moduleByKey = new HashMap<String, String>();
-            for (var module : modules) moduleByKey.putIfAbsent(key(module), module);
-            modulesByProject.put(spec.getTitle(), moduleByKey);
+            modulesByProject.put(spec.getTitle(), new NameMatcher(modules, true));
         }
+        var projectMatcher = new NameMatcher(projectNames, false);
         var canonical = new ArrayList<AiImportRow>(rows.size());
         for (var row : rows) {
-            var project = projectByKey.getOrDefault(key(row.project()), row.project());
+            var project = projectMatcher.match(row.project());
             var module = row.module();
-            var moduleByKey = modulesByProject.get(project);
-            if (moduleByKey != null && !module.isBlank()) {
-                module = moduleByKey.getOrDefault(key(module), module);
+            var moduleMatcher = modulesByProject.get(project);
+            if (moduleMatcher != null && !module.isBlank()) {
+                module = moduleMatcher.match(module);
             }
             canonical.add(new AiImportRow(project, module, row.title(), row.createdAt()));
         }
@@ -264,7 +270,88 @@ public class AiImportService {
     }
 
     private static String key(String value) {
-        return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        if (value == null) return "";
+        var normalized = Normalizer.normalize(value, Normalizer.Form.NFKC);
+        return normalized.replaceAll("[\\s\\p{P}]+", "").toLowerCase(Locale.ROOT);
+    }
+
+    private static final List<String> GENERIC_SUFFIXES =
+        List.of("管理", "系统", "平台", "模块", "功能");
+
+    // 去掉“管理/系统”等通用后缀后仍至少保留 2 个字，避免把短名称削没
+    private static String coreKey(String key) {
+        var result = key;
+        var changed = true;
+        while (changed) {
+            changed = false;
+            for (var suffix : GENERIC_SUFFIXES) {
+                if (result.endsWith(suffix) && result.length() - suffix.length() >= 2) {
+                    result = result.substring(0, result.length() - suffix.length());
+                    changed = true;
+                }
+            }
+        }
+        return result;
+    }
+
+    private static void register(Map<String, String> map, Set<String> ambiguous,
+        String key, String name) {
+        if (key.isEmpty() || ambiguous.contains(key)) return;
+        var previous = map.get(key);
+        if (previous == null) {
+            map.put(key, name);
+        } else if (!previous.equals(name)) {
+            // 同一个键对应多个现有名称时不猜，交给模型或用户处理
+            map.remove(key);
+            ambiguous.add(key);
+        }
+    }
+
+    private static final class NameMatcher {
+        private final List<String> names;
+        private final Map<String, String> byKey = new HashMap<>();
+        private final Map<String, String> byCore = new HashMap<>();
+        private final Set<String> ambiguousKeys = new HashSet<>();
+        private final Set<String> ambiguousCores = new HashSet<>();
+        private final boolean allowPartial;
+
+        NameMatcher(List<String> values, boolean allowPartial) {
+            this.allowPartial = allowPartial;
+            this.names = values == null ? List.of()
+                : values.stream().filter(value -> value != null && !value.isBlank()).toList();
+            for (var name : names) {
+                var nameKey = key(name);
+                if (nameKey.isEmpty()) continue;
+                register(byKey, ambiguousKeys, nameKey, name);
+                register(byCore, ambiguousCores, coreKey(nameKey), name);
+            }
+        }
+
+        String match(String value) {
+            if (value == null || value.isBlank()) return value;
+            var valueKey = key(value);
+            if (valueKey.isEmpty()) return value;
+            var hit = byKey.get(valueKey);
+            if (hit != null) return hit;
+            hit = byCore.get(coreKey(valueKey));
+            if (hit != null) return hit;
+            return allowPartial ? partial(valueKey, value) : value;
+        }
+
+        // 模块允许一个字以内的包含关系，例如“前端”与“前端开发”
+        private String partial(String valueKey, String fallback) {
+            String hit = null;
+            for (var name : names) {
+                var nameKey = key(name);
+                var shorter = valueKey.length() <= nameKey.length() ? valueKey : nameKey;
+                var longer = valueKey.length() <= nameKey.length() ? nameKey : valueKey;
+                if (shorter.length() < 2 || !longer.contains(shorter)) continue;
+                if (longer.length() - shorter.length() > 2) continue;
+                if (hit != null && !hit.equals(name)) return fallback;
+                hit = name;
+            }
+            return hit == null ? fallback : hit;
+        }
     }
 
     private static final List<DateTimeFormatter> AI_DATE_TIMES = List.of(
