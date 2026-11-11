@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.concurrent.TimeoutException;
@@ -60,15 +61,21 @@ public class AiImportService {
         this.dataAccess = dataAccess;
     }
 
-    public Mono<List<AiImportRow>> analyze(String owner, String text) {
+    public Mono<List<AiImportRow>> analyze(String owner, String text, String targetProject) {
         var started = System.nanoTime();
         log.info("AI import start: chars={}", text.length());
         return settings()
             .flatMap(ai -> dataAccess.listProjects(owner)
                 .take(MAX_PROJECTS_IN_PROMPT)
                 .collectList()
-                .flatMap(projects -> callModel(ai, buildPrompt(projects), text)
-                    .map(output -> parseRows(output, projects))))
+                .flatMap(projects -> resolveTarget(owner, targetProject, projects)
+                    .map(Optional::of)
+                    .defaultIfEmpty(Optional.empty())
+                    .flatMap(target -> {
+                        var resolved = target.orElse(null);
+                        return callModel(ai, buildPrompt(projects, resolved), text)
+                            .map(output -> parseRows(output, projects, resolved));
+                    })))
             .timeout(TIMEOUT)
             .doOnNext(rows -> log.info("AI import done: chars={}, rows={}, elapsedMs={}",
                 text.length(), rows.size(), elapsedMs(started)))
@@ -81,6 +88,19 @@ public class AiImportService {
 
     private static long elapsedMs(long started) {
         return (System.nanoTime() - started) / 1_000_000;
+    }
+
+    // 项目列表在提示词里只取前 100 个；导入目标可能更晚创建，需要单独取出来
+    private Mono<WorkspaceProject> resolveTarget(String owner, String targetProject,
+        List<WorkspaceProject> projects) {
+        if (targetProject == null || targetProject.isBlank()) return Mono.empty();
+        var known = projects.stream()
+            .filter(project -> project.getMetadata() != null
+                && targetProject.equals(project.getMetadata().getName()))
+            .findFirst();
+        if (known.isPresent()) return Mono.just(known.get());
+        return dataAccess.getProject(owner, targetProject)
+            .onErrorResume(ApiException.class, error -> Mono.empty());
     }
 
     private Mono<AiSettings> settings() {
@@ -196,7 +216,7 @@ public class AiImportService {
         return content.asText();
     }
 
-    private String buildPrompt(List<WorkspaceProject> projects) {
+    private String buildPrompt(List<WorkspaceProject> projects, WorkspaceProject target) {
         var builder = new StringBuilder();
         builder.append("你是待办导入助手。请把用户粘贴的表格内容整理成待办清单。\n")
             .append("用户已有的项目和模块（归并同义写法时必须逐字使用下列名称）：\n");
@@ -212,6 +232,18 @@ public class AiImportService {
                 builder.append("：").append(String.join("、", modules));
             }
             builder.append('\n');
+        }
+        if (target != null && target.getSpec() != null) {
+            var spec = target.getSpec();
+            builder.append("本次导入的目标项目：").append(spec.getTitle()).append("，项目统一输出这个名字。\n");
+            var modules = spec.getModules();
+            if (modules == null || modules.isEmpty()) {
+                builder.append("该项目还没有模块：按待办所属的业务对象起 2–6 字的名词模块名，不要按动作或页面起名。\n");
+            } else {
+                builder.append("该项目的已有模块：").append(String.join("、", modules)).append("。\n")
+                    .append("每条待办都必须归入其中最贴近的一个已有模块，逐字输出已有模块名；")
+                    .append("只有整条待办属于这些模块都没覆盖的新业务分区时，才起新的 2–6 字名词模块名。\n");
+            }
         }
         builder.append("""
             沿用判断（优先级最高）：
@@ -230,7 +262,7 @@ public class AiImportService {
             3. 状态、负责人、优先级、功能、页面、菜单、分类等额外列直接忽略；只有描述、详情、说明、备注、问题描述、需求描述、问题现象这类内容才作为详情。详情可以适度总结提炼、分点排版（如 1. 2. 3.），只要意思不变；不要照抄客套话、重复内容和无意义的口水话，也不要编造原文没有的信息。详情必须是对这条需求 / bug 的具体描述；如果某列只是一个功能名、页面名、模块名，或内容与模块相同，不要把它当详情，详情留空。明确没有用的列可以直接丢掉，不要为了填满字段把无关内容塞进项目 / 模块 / 待办 / 详情。
             4. 待办标题要能独立看懂：如果原文只有短的功能名 / 页面名，真正内容在问题描述 / 需求描述列，就把两者合并成一句具体的标题，提炼出核心现象或期望，可以整理得更通顺，不必逐字照抄，但不要改变意思，也不要把整段长文原样塞进标题；标题已经说清楚时，详情留空，详情只放标题之外的复现步骤、截图说明或延伸信息，不要重复标题。每行只输出一条待办，不要加序号、合并或拆分。从 Excel 复制时，单元格内的换行会用双引号把整个单元格包起来；引号内的换行属于同一个单元格，不要当成新的一行，也不要把外层双引号写进结果。
             5. 同一项目 / 模块的多种写法（空格、大小写、标点、简称、同义叫法，例如“讲师库管理”和“讲师管理”）必须归并为同一名称；能和已有项目 / 模块对上时，严格按上面的「沿用判断」输出已有名称原文。
-            6. 模块必须填写，不能为空。原文没有模块列时，根据待办语义起一个简短模块名（2–8 个字，例如“讲师库”）；优先复用上面列表里同一项目下已有的模块，没有对应模块时再起新名；同一项目的同类待办使用同一个模块名。
+            6. 模块是待办所属的业务分区（名词短语），必须填写，不能为空。优先归入上面同一项目已有的模块：只要已有模块覆盖这条待办的业务对象，就逐字输出已有模块名，例如已有「培训」「考试&调研」时，“培训机构”“编辑考试”“考试详情”“考试报名”应分别输出「培训」「考试&调研」「考试&调研」「考试&调研」。不要用“编辑 / 新增 / 添加 / 删除 / 查看 / 详情 / 列表 / 页面 / 导出 / 导入 / 设置”等动作或页面词直接当模块名；待办是“编辑 X”或“X 详情”时，模块应是 X 所属的业务分区，而不是“编辑 X”本身。现有模块确实都不覆盖时才起新的 2–6 字名词模块名；同一项目同类待办使用同一个模块名。
             7. 不要把描述性长句当项目或模块，也不要把项目 / 模块名当成待办；不要因为列顺序不同就把项目和模块互换。
             8. 创建时间只在原文明确给出时输出，不要用当前时间补齐；明确写“创建时间 / 创建日期 / 添加时间 / 录入时间 / 提交时间 / 日期 / 提出日期 / 反馈日期 / 报告日期”的日期列作为创建时间，没有任何标注的日期在没有其它日期列时也按创建时间处理；截止日期、完成日期、更新日期不要当成创建时间。格式统一为“YYYY-MM-DD HH:mm”，只有日期时输出“YYYY-MM-DD”；没有年份的日期（例如“7月14日”）按当前年份 {{YEAR}} 补全；原文没有创建时间时输出空字符串。
             9. 只有明确是“姓名 / 提出人 / 反馈人 / 提单人 / 提交人 / 报告人 / 谁提的”的人名列才作为姓名；负责人、处理人、指派人不算姓名。姓名保留原文，不要自行补充部门或称谓；原文没有姓名列时输出空字符串。
@@ -258,7 +290,8 @@ public class AiImportService {
         return builder.toString().replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
     }
 
-    private List<AiImportRow> parseRows(String output, List<WorkspaceProject> projects) {
+    private List<AiImportRow> parseRows(String output, List<WorkspaceProject> projects,
+        WorkspaceProject target) {
         var start = output.indexOf('[');
         var end = output.lastIndexOf(']');
         if (start < 0 || end <= start) {
@@ -295,12 +328,12 @@ public class AiImportService {
         if (rows.size() > MAX_ROWS) {
             throw ApiException.badRequest("AI 识别结果超过 " + MAX_ROWS + " 行，请分批导入");
         }
-        return canonicalize(rows, projects);
+        return canonicalize(rows, projects, target);
     }
 
     // AI 可能输出近义写法；能对上现有项目/模块时改回库里的名字，避免导入后多建重复项
     private static List<AiImportRow> canonicalize(List<AiImportRow> rows,
-        List<WorkspaceProject> projects) {
+        List<WorkspaceProject> projects, WorkspaceProject target) {
         var projectNames = new ArrayList<String>();
         var modulesByProject = new HashMap<String, NameMatcher>();
         for (var project : projects) {
@@ -312,11 +345,18 @@ public class AiImportService {
             modulesByProject.put(spec.getTitle(), new NameMatcher(modules, true));
         }
         var projectMatcher = new NameMatcher(projectNames, false);
+        var targetTitle = target == null || target.getSpec() == null
+            ? null
+            : target.getSpec().getTitle();
+        // 目标项目可能不在提示词的前 100 个里，模块列表直接从目标项目构建
+        var targetModuleMatcher = target == null || target.getSpec() == null
+            ? null
+            : new NameMatcher(target.getSpec().getModules(), true);
         var canonical = new ArrayList<AiImportRow>(rows.size());
         for (var row : rows) {
-            var project = projectMatcher.match(row.project());
+            var project = targetTitle != null ? targetTitle : projectMatcher.match(row.project());
             var module = row.module();
-            var moduleMatcher = modulesByProject.get(project);
+            var moduleMatcher = targetTitle != null ? targetModuleMatcher : modulesByProject.get(project);
             if (moduleMatcher != null && !module.isBlank()) {
                 module = moduleMatcher.match(module);
             }
@@ -341,6 +381,11 @@ public class AiImportService {
 
     private static final List<String> GENERIC_SUFFIXES =
         List.of("管理", "系统", "平台", "模块", "功能");
+
+    // 模型常把“编辑考试”“考试详情”整串当模块名；匹配前先剥掉这些动作/页面词
+    private static final List<String> ACTION_WORDS = List.of(
+        "编辑", "新增", "添加", "删除", "查看", "详情", "列表", "页面", "导出", "导入",
+        "设置", "配置", "查询", "审核", "发布", "预览", "修改", "更新", "维护", "管理", "搜索");
 
     // 去掉“管理/系统”等通用后缀后仍至少保留 2 个字，避免把短名称削没
     private static String coreKey(String key) {
@@ -402,8 +447,26 @@ public class AiImportService {
             return allowPartial ? partial(valueKey, value) : value;
         }
 
-        // 模块允许一个字以内的包含关系，例如“前端”与“前端开发”
+        // 模块允许包含关系、动作词剥离和业务词匹配：
+        // 前端开发→前端、培训机构→培训、编辑考试 / 考试详情→考试&调研
         private String partial(String valueKey, String fallback) {
+            var hit = containment(valueKey);
+            if (hit != null) return hit.isEmpty() ? fallback : hit;
+            var stripped = stripActions(valueKey);
+            if (!stripped.equals(valueKey)) {
+                var exact = byKey.get(stripped);
+                if (exact == null) exact = byCore.get(coreKey(stripped));
+                if (exact != null) return exact;
+                hit = containment(stripped);
+                if (hit != null) return hit.isEmpty() ? fallback : hit;
+            }
+            hit = termMatch(valueKey);
+            if (hit == null) return fallback;
+            return hit.isEmpty() ? fallback : hit;
+        }
+
+        // 返回 null=无匹配、""=多个现有名称都匹配（不猜）、其他=命中的现有名称
+        private String containment(String valueKey) {
             String hit = null;
             for (var name : names) {
                 var nameKey = key(name);
@@ -411,11 +474,57 @@ public class AiImportService {
                 var longer = valueKey.length() <= nameKey.length() ? nameKey : valueKey;
                 if (shorter.length() < 2 || !longer.contains(shorter)) continue;
                 if (longer.length() - shorter.length() > 2) continue;
-                if (hit != null && !hit.equals(name)) return fallback;
+                if (hit != null && !hit.equals(name)) return "";
                 hit = name;
             }
-            return hit == null ? fallback : hit;
+            return hit;
         }
+
+        private String termMatch(String valueKey) {
+            String hit = null;
+            var best = 0;
+            for (var name : names) {
+                for (var term : termsOf(name)) {
+                    if (!valueKey.contains(term)) continue;
+                    if (term.length() > best) {
+                        best = term.length();
+                        hit = name;
+                    } else if (term.length() == best && !name.equals(hit)) {
+                        return "";
+                    }
+                }
+            }
+            return hit;
+        }
+    }
+
+    private static String stripActions(String key) {
+        var result = key;
+        var changed = true;
+        while (changed) {
+            changed = false;
+            for (var word : ACTION_WORDS) {
+                if (result.length() - word.length() < 2) continue;
+                if (result.startsWith(word)) {
+                    result = result.substring(word.length());
+                    changed = true;
+                } else if (result.endsWith(word)) {
+                    result = result.substring(0, result.length() - word.length());
+                    changed = true;
+                }
+            }
+        }
+        return result;
+    }
+
+    // 模块名里的业务词，例如“考试&调研”拆出“考试”“调研”
+    private static List<String> termsOf(String name) {
+        var normalized = Normalizer.normalize(name, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT);
+        var terms = new ArrayList<String>();
+        for (var part : normalized.split("[\\s\\p{P}\\p{S}]+")) {
+            if (part.length() >= 2 && !terms.contains(part)) terms.add(part);
+        }
+        return terms;
     }
 
     private static final List<DateTimeFormatter> AI_DATE_TIMES = List.of(

@@ -56,7 +56,7 @@ public class WorkspaceConfig {
                     if (text.length() > 20000) {
                         return Mono.error(ApiException.badRequest("粘贴内容不能超过 20000 个字符"));
                     }
-                    return aiImportService.analyze(username, text);
+                    return aiImportService.analyze(username, text, body.project());
                 })
                 .map(AiImportResponse::new)
                 .flatMap(result -> ServerResponse.ok()

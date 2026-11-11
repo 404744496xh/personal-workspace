@@ -191,12 +191,16 @@ function removeEditRow(index: number): void {
 }
 
 async function requestAiChunk(chunk: string): Promise<AiImportRow[]> {
+  // 选定项目时把项目一并交给服务端，让模块按该项目的已有模块归并
+  const project = targetProject.value === AI_TARGET_AUTO || targetProject.value === ''
+    ? null
+    : targetProject.value
   try {
-    return (await aiImport(chunk)).rows
+    return (await aiImport(chunk, project)).rows
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) throw err
     // 网关超时或上游抖动时自动重试这一批，避免前面的批次白跑
-    return (await aiImport(chunk)).rows
+    return (await aiImport(chunk, project)).rows
   }
 }
 

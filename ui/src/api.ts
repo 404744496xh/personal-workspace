@@ -207,7 +207,7 @@ export function importBackup(payload: BackupData, replace: boolean): Promise<Bac
   })
 }
 
-export async function aiImport(text: string): Promise<AiImportResponse> {
+export async function aiImport(text: string, project?: string | null): Promise<AiImportResponse> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json'
@@ -219,7 +219,7 @@ export async function aiImport(text: string): Promise<AiImportResponse> {
     method: 'POST',
     credentials: 'same-origin',
     headers,
-    body: JSON.stringify({ text })
+    body: JSON.stringify(project ? { text, project } : { text })
   })
   if (response.status === 401) {
     throw new ApiError(401, 'UNAUTHORIZED', '请先登录')

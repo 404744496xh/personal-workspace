@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record AiImportRequest(
-    @NotBlank @Size(max = 20000) String text
+    @NotBlank @Size(max = 20000) String text,
+    @Size(max = 200) String project
 ) {
 }
