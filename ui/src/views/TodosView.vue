@@ -134,6 +134,9 @@ const hasFilters = computed(() =>
 const hasCreatedFilter = computed(() => createdFrom.value !== '' || createdTo.value !== '')
 const hasCompletedFilter = computed(() => completedFrom.value !== '' || completedTo.value !== '')
 const hasTimeFilters = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
+const showEmptyGroups = computed(() =>
+  status.value === 'OPEN' && activeProject.value === null
+  && keyword.value.trim() === '' && priority.value === '' && !hasTimeFilters.value)
 const hasNonKeywordFilters = computed(() =>
   (status.value !== 'ALL' && status.value !== 'OPEN') || priority.value !== ''
   || activeProject.value !== null || hasTimeFilters.value)
@@ -179,7 +182,7 @@ const visibleItems = computed(() => {
   return sortTodos(filtered)
 })
 const groups = computed(() =>
-  buildGroups(visibleItems.value, projects.value, activeProject.value))
+  buildGroups(visibleItems.value, projects.value, activeProject.value, showEmptyGroups.value))
 const orderedVisible = computed(() =>
   groups.value.flatMap((group) => group.modules.flatMap((module) => module.todos)))
 const selectedTodos = computed(() =>
@@ -375,7 +378,7 @@ function toggleSortDir(): void {
 }
 
 function buildGroups(todos: Todo[], projectList: Project[],
-  expandProject: string | null): ProjectGroup[] {
+  expandProject: string | null, includeEmptyProjects: boolean): ProjectGroup[] {
   const projectMap = new Map(projectList.map((project) => [project.name, project]))
   const buckets = new Map<string, Map<string, Todo[]>>()
   for (const todo of todos) {
@@ -390,7 +393,9 @@ function buildGroups(todos: Todo[], projectList: Project[],
   const result: ProjectGroup[] = []
   for (const project of projectList) {
     const modules = buckets.get(project.name)
-    if (!modules && project.name !== expandProject) continue
+    const expanded = project.name === expandProject
+    if (!showFinished.value && hiddenProjectNames.value.has(project.name) && !expanded) continue
+    if (!modules && !expanded && !includeEmptyProjects) continue
     const moduleBuckets = modules ?? new Map<string, Todo[]>()
     result.push({
       key: project.name,
@@ -399,7 +404,7 @@ function buildGroups(todos: Todo[], projectList: Project[],
       modules: buildModuleGroups(
         moduleBuckets,
         project.modules,
-        project.name === expandProject
+        expanded || includeEmptyProjects
       )
     })
   }
