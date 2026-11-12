@@ -1354,138 +1354,127 @@ onUnmounted(() => {
         </svg>
         <Input
           v-model="keyword"
-          class="ws-search pl-10"
+          class="ws-search pl-10 pr-11"
           type="search"
           placeholder="搜索标题或详情"
           aria-label="搜索待办"
         />
-      </div>
-      <div ref="viewMenuRef" class="relative">
-        <Button
-          variant="secondary"
-          size="sm"
-          class="ws-view-toggle max-w-[176px]"
-          :class="activeView ? 'text-[#007AFF] dark:text-[#64B5FF]' : ''"
-          :aria-expanded="viewsOpen"
-          aria-haspopup="menu"
-          :aria-label="activeView ? `筛选视图：${activeView.name}` : '筛选视图'"
-          :title="activeView ? `当前视图：${activeView.name}` : '筛选视图'"
-          @click="viewsOpen = !viewsOpen"
-        >
-          <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M4 2.5h8a1 1 0 011 1v10l-5-3-5 3v-10a1 1 0 011-1z"
-              stroke="currentColor"
-              stroke-width="1.3"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <span class="min-w-0 truncate">{{ activeView?.name ?? '视图' }}</span>
-          <svg
-            class="h-3 w-3 shrink-0 transition-transform duration-200 ease-[var(--ws-ease)]"
-            :class="{ 'rotate-180': viewsOpen }"
-            viewBox="0 0 16 16"
-            fill="none"
-            aria-hidden="true"
+        <div ref="viewMenuRef" class="absolute right-1 top-1/2 z-10 -translate-y-1/2">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="ws-view-toggle relative text-[#6e6e73] dark:text-[#98989d]"
+            :class="activeView ? 'text-[#007AFF] dark:text-[#64B5FF]' : ''"
+            :aria-expanded="viewsOpen"
+            aria-haspopup="menu"
+            :aria-label="activeView ? `筛选视图：${activeView.name}` : '筛选视图'"
+            :title="activeView ? `当前视图：${activeView.name}` : '筛选视图'"
+            @click="viewsOpen = !viewsOpen"
           >
-            <path
-              d="M3.5 6l4.5 4.5L12.5 6"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </Button>
-        <div
-          v-if="viewsOpen"
-          class="ws-view-menu absolute left-0 top-full z-40 mt-1 w-[240px] overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
-          role="menu"
-          aria-label="筛选视图"
-        >
-          <p
-            v-if="!savedViews.length"
-            class="px-3 py-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
-          >还没有保存的视图</p>
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path
+                d="M4 2.5h8a1 1 0 011 1v10l-5-3-5 3v-10a1 1 0 011-1z"
+                stroke="currentColor"
+                stroke-width="1.3"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span
+              v-if="activeView"
+              class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#007AFF] dark:bg-[#0A84FF]"
+              aria-hidden="true"
+            ></span>
+          </Button>
           <div
-            v-for="view in savedViews"
-            :key="view.id"
-            class="ws-view-item group/view flex items-center rounded-lg transition-colors duration-150 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+            v-if="viewsOpen"
+            class="ws-view-menu absolute right-0 top-full z-40 mt-1 w-[240px] overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+            role="menu"
+            aria-label="筛选视图"
           >
-            <button
-              type="button"
-              role="menuitem"
-              class="flex min-h-10 min-w-0 flex-1 items-center gap-2 px-3 text-left text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]"
-              @click="applyView(view)"
+            <p
+              v-if="!savedViews.length"
+              class="px-3 py-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
+            >还没有保存的视图</p>
+            <div
+              v-for="view in savedViews"
+              :key="view.id"
+              class="ws-view-item group/view flex items-center rounded-lg transition-colors duration-150 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
             >
-              <span class="min-w-0 flex-1 truncate">{{ view.name }}</span>
-              <svg
-                v-if="activeView?.id === view.id"
-                class="h-3.5 w-3.5 shrink-0 text-[#007AFF] dark:text-[#64B5FF]"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
+              <button
+                type="button"
+                role="menuitem"
+                class="flex min-h-10 min-w-0 flex-1 items-center gap-2 px-3 text-left text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]"
+                @click="applyView(view)"
               >
-                <path
-                  d="M3.5 8.5l3 3 6-7"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </button>
+                <span class="min-w-0 flex-1 truncate">{{ view.name }}</span>
+                <svg
+                  v-if="activeView?.id === view.id"
+                  class="h-3.5 w-3.5 shrink-0 text-[#007AFF] dark:text-[#64B5FF]"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3.5 8.5l3 3 6-7"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                class="flex h-10 w-9 shrink-0 items-center justify-center text-[#8e8e93] transition-colors duration-150 hover:text-[#FF3B30]"
+                :aria-label="`删除视图 ${view.name}`"
+                title="删除视图"
+                @click="deleteView(view)"
+              >
+                <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.6 8.5h6.8l.6-8.5"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
+            <form v-if="savingView" class="px-2 pb-1 pt-1.5" @submit.prevent="saveView">
+              <Input
+                v-model="newViewName"
+                maxlength="20"
+                autofocus
+                placeholder="视图名称，如：培训待验证"
+                aria-label="视图名称"
+                @keydown.esc="cancelSaveView"
+              />
+              <p
+                v-if="viewError"
+                class="ws-form-error mt-1 text-[12px] text-[#FF3B30]"
+                role="alert"
+              >{{ viewError }}</p>
+              <div class="mt-2 flex justify-end gap-1.5">
+                <Button type="button" variant="ghost" size="sm" @click="cancelSaveView">取消</Button>
+                <Button type="submit" variant="primary" size="sm">保存</Button>
+              </div>
+            </form>
             <button
+              v-else
               type="button"
               role="menuitem"
-              class="flex h-10 w-9 shrink-0 items-center justify-center text-[#8e8e93] transition-colors duration-150 hover:text-[#FF3B30]"
-              :aria-label="`删除视图 ${view.name}`"
-              title="删除视图"
-              @click="deleteView(view)"
+              class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#98989d] dark:hover:bg-white/[0.06] dark:hover:text-[#f5f5f7]"
+              @click="startSaveView"
             >
-              <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.6 8.5h6.8l.6-8.5"
-                  stroke="currentColor"
-                  stroke-width="1.4"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
+              <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
               </svg>
+              保存当前筛选…
             </button>
           </div>
-          <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
-          <form v-if="savingView" class="px-2 pb-1 pt-1.5" @submit.prevent="saveView">
-            <Input
-              v-model="newViewName"
-              maxlength="20"
-              autofocus
-              placeholder="视图名称，如：培训待验证"
-              aria-label="视图名称"
-              @keydown.esc="cancelSaveView"
-            />
-            <p
-              v-if="viewError"
-              class="ws-form-error mt-1 text-[12px] text-[#FF3B30]"
-              role="alert"
-            >{{ viewError }}</p>
-            <div class="mt-2 flex justify-end gap-1.5">
-              <Button type="button" variant="ghost" size="sm" @click="cancelSaveView">取消</Button>
-              <Button type="submit" variant="primary" size="sm">保存</Button>
-            </div>
-          </form>
-          <button
-            v-else
-            type="button"
-            role="menuitem"
-            class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#98989d] dark:hover:bg-white/[0.06] dark:hover:text-[#f5f5f7]"
-            @click="startSaveView"
-          >
-            <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-            </svg>
-            保存当前筛选…
-          </button>
         </div>
       </div>
       <Select v-model="status" class="w-[104px]" aria-label="完成状态">
