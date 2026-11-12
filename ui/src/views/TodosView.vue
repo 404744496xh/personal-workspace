@@ -69,7 +69,7 @@ function staleCutoff(): string {
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-const status = ref<StatusFilter>(todosTarget?.status ?? 'ALL')
+const status = ref<StatusFilter>(todosTarget?.status ?? 'OPEN')
 const priority = ref<Priority | ''>('')
 const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
@@ -128,15 +128,15 @@ const collapsedProjects = ref<Set<string>>(new Set())
 const collapsedModules = ref<Set<string>>(new Set())
 
 const hasFilters = computed(() =>
-  keyword.value.trim() !== '' || status.value !== 'ALL' || priority.value !== ''
-  || activeProject.value !== null || createdFrom.value !== '' || createdTo.value !== ''
-  || completedFrom.value !== '' || completedTo.value !== '')
+  keyword.value.trim() !== '' || (status.value !== 'ALL' && status.value !== 'OPEN')
+  || priority.value !== '' || activeProject.value !== null || createdFrom.value !== ''
+  || createdTo.value !== '' || completedFrom.value !== '' || completedTo.value !== '')
 const hasCreatedFilter = computed(() => createdFrom.value !== '' || createdTo.value !== '')
 const hasCompletedFilter = computed(() => completedFrom.value !== '' || completedTo.value !== '')
 const hasTimeFilters = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
 const hasNonKeywordFilters = computed(() =>
-  status.value !== 'ALL' || priority.value !== '' || activeProject.value !== null
-  || hasTimeFilters.value)
+  (status.value !== 'ALL' && status.value !== 'OPEN') || priority.value !== ''
+  || activeProject.value !== null || hasTimeFilters.value)
 const timeFilterTitle = computed(() => {
   const parts = [
     hasCreatedFilter.value ? '创建时间' : '',
@@ -195,7 +195,7 @@ const activeProjectTitle = computed(() => {
 const moveModules = computed(() =>
   projects.value.find((project) => project.name === moveProject.value)?.modules ?? [])
 const displayedTotal = computed(() =>
-  hasFilters.value || hiddenTodoCount.value + dismissedCount.value > 0
+  hasFilters.value || status.value !== 'ALL' || hiddenTodoCount.value + dismissedCount.value > 0
     ? visibleItems.value.length
     : total.value)
 const truncated = computed(() =>
@@ -291,7 +291,7 @@ function clearSelection(): void {
 function clearAllFilters(): void {
   clearSelection()
   keyword.value = ''
-  status.value = 'ALL'
+  status.value = 'OPEN'
   priority.value = ''
   createdFrom.value = ''
   createdTo.value = ''
@@ -1549,10 +1549,13 @@ onUnmounted(() => {
         class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
       >
         <p class="ws-state-title text-[15px] font-semibold">
-          {{ hasFilters ? '没有匹配的待办' : dismissedCount > 0 ? '待办都已标为不用处理' : '还没有待办' }}
+          {{ hasFilters ? '没有匹配的待办'
+            : status === 'OPEN' && total > 0 ? '没有未完成的待办'
+            : dismissedCount > 0 ? '待办都已标为不用处理' : '还没有待办' }}
         </p>
         <p class="ws-muted text-[13px] text-[#6e6e73] dark:text-[#98989d]">
           {{ hasFilters ? '换个关键词或筛选条件试试'
+            : status === 'OPEN' && total > 0 ? '可在状态筛选切到「已完成」或「不用处理」查看'
             : dismissedCount > 0 ? '需要时可在状态筛选切到「不用处理」找回' : '先写下今天最重要的一件事' }}
         </p>
         <Button
