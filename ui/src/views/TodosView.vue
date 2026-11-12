@@ -126,6 +126,8 @@ const bulkBusy = ref(false)
 const bulkDeleteOpen = ref(false)
 const bulkMenuOpen = ref(false)
 const bulkMenuRef = ref<HTMLElement | null>(null)
+const copyMenuOpen = ref(false)
+const copyMenuRef = ref<HTMLElement | null>(null)
 const VIEWS_KEY = 'personal-workspace-todo-views'
 const savedViews = ref<SavedView[]>(loadSavedViews())
 const viewsOpen = ref(false)
@@ -894,6 +896,7 @@ function toggleSelecting(): void {
   if (!selecting.value) {
     selected.value = new Set()
     bulkMenuOpen.value = false
+    copyMenuOpen.value = false
     moveOpen.value = false
   }
 }
@@ -903,12 +906,14 @@ function handleMenuPointerDown(event: PointerEvent): void {
   const inside = (element: HTMLElement | null): boolean =>
     target instanceof Node && Boolean(element?.contains(target))
   if (bulkMenuOpen.value && !inside(bulkMenuRef.value)) bulkMenuOpen.value = false
+  if (copyMenuOpen.value && !inside(copyMenuRef.value)) copyMenuOpen.value = false
   if (viewsOpen.value && !inside(viewMenuRef.value)) viewsOpen.value = false
 }
 
 function handleMenuKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') return
   bulkMenuOpen.value = false
+  copyMenuOpen.value = false
   viewsOpen.value = false
 }
 
@@ -1003,11 +1008,13 @@ async function writeClipboard(text: string): Promise<boolean> {
   return ok
 }
 
-async function copySelected(): Promise<void> {
+async function copySelected(titlesOnly: boolean): Promise<void> {
   const todos = selectedTodos.value
   if (!todos.length) return
-  const ok = await writeClipboard(buildCopyText(todos))
-  showToast(ok ? `已复制 ${todos.length} 条待办` : '复制失败，请手动选择文本')
+  copyMenuOpen.value = false
+  const text = titlesOnly ? todos.map((todo) => todo.title).join('\n') : buildCopyText(todos)
+  const ok = await writeClipboard(text)
+  showToast(ok ? (titlesOnly ? `已复制 ${todos.length} 条标题` : `已复制 ${todos.length} 条待办`) : '复制失败，请手动选择文本')
 }
 
 async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
@@ -1757,13 +1764,57 @@ onUnmounted(() => {
             >清除选择</button>
           </div>
         </div>
-        <Button variant="primary" size="sm" :disabled="!selectedTodos.length || bulkBusy" @click="copySelected">
-          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4" />
-            <path d="M10.5 5.5V4a1.5 1.5 0 00-1.5-1.5H4A1.5 1.5 0 002.5 4v5A1.5 1.5 0 004 10.5h1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-          </svg>
-          复制为文本
-        </Button>
+        <div ref="copyMenuRef" class="relative">
+          <Button
+            variant="primary"
+            size="sm"
+            :disabled="!selectedTodos.length || bulkBusy"
+            :aria-expanded="copyMenuOpen"
+            aria-haspopup="menu"
+            title="复制"
+            @click="copyMenuOpen = !copyMenuOpen"
+          >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4" />
+              <path d="M10.5 5.5V4a1.5 1.5 0 00-1.5-1.5H4A1.5 1.5 0 002.5 4v5A1.5 1.5 0 004 10.5h1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+            复制
+            <svg
+              class="h-3 w-3 transition-transform duration-200 ease-[var(--ws-ease)]"
+              :class="{ 'rotate-180': copyMenuOpen }"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M3.5 6l4.5 4.5L12.5 6"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </Button>
+          <div
+            v-if="copyMenuOpen"
+            class="ws-copy-menu absolute right-0 top-full z-30 mt-1 min-w-[168px] overflow-hidden rounded-xl border border-black/[0.08] bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+            role="menu"
+            aria-label="复制"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="copySelected(false)"
+            >复制完整信息</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="copySelected(true)"
+            >仅复制标题</button>
+          </div>
+        </div>
       </div>
     </div>
 
