@@ -188,7 +188,7 @@ function toggleSidebar(): void {
       :class="sidebarHidden ? 'lg:grid-cols-1' : 'lg:grid-cols-[208px_minmax(0,1fr)]'"
     >
       <aside
-        class="ws-sidebar flex-col gap-4 rounded-[18px] border border-white/20 bg-white/[0.72] p-3 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/10 dark:bg-[#1c1c1e]/70 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]"
+        class="ws-sidebar relative z-30 flex-col gap-4 rounded-[18px] border border-white/20 bg-white/[0.72] p-3 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/10 dark:bg-[#1c1c1e]/70 lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]"
         :class="sidebarHidden ? 'flex lg:hidden' : 'flex'"
       >
         <div class="ws-brand flex items-center gap-2.5 px-2 py-1.5">
