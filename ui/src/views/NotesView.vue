@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   ApiError,
   createNote,
@@ -12,7 +12,8 @@ import {
 } from '../api'
 import type { Note, NotePayload, NoteSummary, Project, Todo } from '../types'
 import { excerpt, formatDateTime, messageOf } from '../utils'
-import { takeNotesTarget, takeSearchTarget } from '../searchTarget'
+import { takeNotesTarget, takeSearchTarget, setSearchTarget } from '../searchTarget'
+import type { TodosTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
@@ -28,7 +29,11 @@ const cachedNotes = readCache<NoteSummary[]>('notes')
 const cachedProjects = readCache<Project[]>('projects')
 const cachedTodos = readCache<{ items: Todo[]; total: number }>('todos')
 
-const emit = defineEmits<{ unauthorized: [] }>()
+const emit = defineEmits<{
+  unauthorized: []
+  openProjects: [title: string]
+  openTodos: [target: TodosTarget]
+}>()
 
 const target = takeNotesTarget()
 const notes = ref<NoteSummary[]>(cachedNotes ?? [])
@@ -160,14 +165,6 @@ function clearFilters(): void {
   moduleFilter.value = ''
   todoFilter.value = ''
   includeProjectTodos.value = false
-}
-
-function setProjectFilter(value: string | null): void {
-  projectFilter.value = value ?? ''
-}
-
-function setModuleFilter(value: string | null): void {
-  moduleFilter.value = value ?? ''
 }
 
 function handleError(err: unknown): void {
@@ -312,8 +309,53 @@ async function removeConfirmed(): Promise<void> {
   }
 }
 
+const todoMenuNote = ref<string | null>(null)
+
+function jumpToProject(note: NoteSummary): void {
+  const title = projectTitleOf(note.project)
+  if (title) emit('openProjects', title)
+}
+
+function jumpToModule(note: NoteSummary): void {
+  emit('openTodos', {
+    project: note.project ?? undefined,
+    module: note.module ?? undefined
+  })
+}
+
+function jumpToTodo(note: NoteSummary, name: string): void {
+  todoMenuNote.value = null
+  const title = todoTitleOf(name)
+  if (!title) {
+    jumpToModule(note)
+    return
+  }
+  setSearchTarget(title)
+  emit('openTodos', { status: 'ALL' })
+}
+
+function toggleTodoMenu(name: string): void {
+  todoMenuNote.value = todoMenuNote.value === name ? null : name
+}
+
+function closeTodoMenu(event: MouseEvent): void {
+  const element = event.target as Element | null
+  if (!element?.closest?.('.ws-note-todo-wrap')) todoMenuNote.value = null
+}
+
+function closeTodoMenuOnEscape(event: KeyboardEvent): void {
+  if (event.key === 'Escape') todoMenuNote.value = null
+}
+
 onMounted(() => {
   void load({ silent: Boolean(cachedNotes) })
+  document.addEventListener('mousedown', closeTodoMenu)
+  window.addEventListener('keydown', closeTodoMenuOnEscape)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', closeTodoMenu)
+  window.removeEventListener('keydown', closeTodoMenuOnEscape)
 })
 </script>
 
@@ -432,6 +474,7 @@ onMounted(() => {
         v-for="note in filteredNotes"
         :key="note.name"
         class="ws-note-card group cursor-pointer rounded-[18px] border border-white/20 bg-white/[0.72] p-5 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-white/[0.82] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#1c1c1e]/85"
+        :class="{ 'relative z-30': todoMenuNote === note.name }"
         @click="openEdit(note)"
       >
         <header class="mb-2 flex items-start justify-between gap-2">
@@ -442,16 +485,6 @@ onMounted(() => {
             </p>
           </div>
           <div class="flex shrink-0 items-center opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-            <Button variant="ghost" size="icon" aria-label="编辑" title="编辑" @click.stop="openEdit(note)">
-              <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M10.8 2.6a1.4 1.4 0 012 2L5 12.4l-2.6.6.6-2.6 7.8-7.8z"
-                  stroke="currentColor"
-                  stroke-width="1.4"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -484,21 +517,42 @@ onMounted(() => {
           <button
             v-if="note.project"
             type="button"
-            class="rounded-full bg-[#007AFF]/[0.10] px-2 py-0.5 text-[11px] font-medium text-[#007AFF] transition-colors duration-150 hover:bg-[#007AFF]/[0.18] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.26]"
-            title="按此项目筛选"
-            @click.stop="setProjectFilter(note.project)"
+            class="rounded-full bg-[#007AFF]/[0.10] px-2 py-0.5 text-[11px] font-medium text-[#007AFF] transition-colors duration-150 hover:bg-[#007AFF]/[0.18] disabled:cursor-default dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.26]"
+            title="打开项目页"
+            :disabled="!projectTitleOf(note.project)"
+            @click.stop="jumpToProject(note)"
           >{{ projectTitleOf(note.project) || '原项目已删除' }}</button>
           <button
             v-if="note.module"
             type="button"
             class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/60 transition-colors duration-150 hover:bg-black/[0.1] dark:bg-white/[0.08] dark:text-[#f5f5f7]/60 dark:hover:bg-white/[0.14]"
-            title="按此模块筛选"
-            @click.stop="setModuleFilter(note.module)"
+            title="查看该模块的待办"
+            @click.stop="jumpToModule(note)"
           >模块 · {{ note.module }}</button>
-          <span
-            v-if="note.todos.length"
-            class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/60 dark:bg-white/[0.08] dark:text-[#f5f5f7]/60"
-          >待办 · {{ note.todos.length }}</span>
+          <div v-if="note.todos.length" class="ws-note-todo-wrap relative">
+            <button
+              type="button"
+              class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/60 transition-colors duration-150 hover:bg-black/[0.1] dark:bg-white/[0.08] dark:text-[#f5f5f7]/60 dark:hover:bg-white/[0.14]"
+              :title="note.todos.length > 1 ? '选择关联待办' : '跳转到待办'"
+              :aria-haspopup="note.todos.length > 1 ? 'menu' : undefined"
+              @click.stop="note.todos.length === 1 ? jumpToTodo(note, note.todos[0]) : toggleTodoMenu(note.name)"
+            >待办 · {{ note.todos.length }}</button>
+            <div
+              v-if="todoMenuNote === note.name"
+              class="ws-note-todo-menu absolute bottom-full left-0 z-30 mb-1 max-h-56 min-w-[180px] max-w-[280px] overflow-y-auto rounded-xl border border-black/[0.08] bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+              role="menu"
+              aria-label="关联待办"
+            >
+              <button
+                v-for="name in note.todos"
+                :key="name"
+                type="button"
+                role="menuitem"
+                class="block w-full truncate px-3 py-2 text-left text-[12px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+                @click.stop="jumpToTodo(note, name)"
+              >{{ todoTitleOf(name) || '待办已删除' }}</button>
+            </div>
+          </div>
         </div>
 
         <div v-if="note.tags.length" class="mt-3 flex flex-wrap gap-1.5">

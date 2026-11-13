@@ -382,6 +382,8 @@ function toggleSidebar(): void {
           v-else-if="tab === 'notes'"
           :key="viewKey"
           @unauthorized="onUnauthorized"
+          @open-projects="onHomeOpenProjects"
+          @open-todos="onOpenTodos"
         />
         <BackupView
           v-else

@@ -4,7 +4,7 @@ Halo 2.26+ 的前台个人工作台插件：把待办、项目、快速命令与
 
 后端 Java 21 + WebFlux，前端 Vue 3 + Vite + Tailwind，笔记编辑器使用 Vditor。
 
-当前版本：`0.6.70`
+当前版本：`0.6.71`
 
 ![待办](docs/screenshots/todos.png)
 
@@ -73,7 +73,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 - Mermaid 代码块（`` ```mermaid ``）直接渲染为 SVG，样式与前台文章一致，切换深浅色时按主题重绘
 - 支持表格、行内 HTML 预览；粘贴或拖入图片自动上传为站点附件并插入 Markdown
 - 可关联项目、模块与多个待办；「属性」弹窗编辑关联，不打断正文
-- 列表按项目 / 模块 / 待办筛选，卡片上的标签点击即筛选
+- 点击卡片直接打开编辑；卡片上的项目 / 模块 / 待办标签可跳到项目页、该模块待办或具体待办（多个待办时先选一个）
 
 ![笔记编辑器](docs/screenshots/note-editor.png)
 
@@ -98,7 +98,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 
 ```bash
 ./gradlew build
-# 产物：build/libs/personal-workspace-0.6.70.jar
+# 产物：build/libs/personal-workspace-0.6.71.jar
 ```
 
 打开 Halo Console →「插件 → 安装」，上传 jar 并启用，然后访问 `/workspace`。
