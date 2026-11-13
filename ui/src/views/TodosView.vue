@@ -28,6 +28,7 @@ import { readCache, writeCache } from '../cache'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
 import Select from '../components/ui/Select.vue'
+import SearchSelect from '../components/ui/SearchSelect.vue'
 
 type StatusFilter = 'ALL' | 'OPEN' | 'DONE' | 'DISMISSED'
 type SortField = 'created' | 'completed' | 'due' | 'priority'
@@ -153,7 +154,8 @@ const showFinished = ref(
       project.name === todosTarget.project && project.progress >= 100)
     : false)
 let jumpApplied = showFinished.value || !todosTarget?.project
-const timeOpen = ref(Boolean(todosTarget?.stale))
+const filterOpen = ref(Boolean(todosTarget?.stale))
+const filterMenuRef = ref<HTMLElement | null>(null)
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
 const savingRename = ref(false)
 const renameError = ref('')
@@ -186,12 +188,42 @@ const activeView = computed(() => savedViews.value.find(
 const hasNonKeywordFilters = computed(() =>
   (status.value !== 'ALL' && status.value !== 'OPEN') || priority.value !== ''
   || activeProject.value !== null || hasTimeFilters.value)
-const timeFilterTitle = computed(() => {
-  const parts = [
-    hasCreatedFilter.value ? '创建时间' : '',
-    hasCompletedFilter.value ? '完成时间' : ''
-  ].filter(Boolean)
-  return parts.length ? `时间筛选：已设置${parts.join('、')}` : '时间筛选'
+const activeFilterCount = computed(() => {
+  let count = 0
+  if (activeProject.value !== null) count += 1
+  if (activeModule.value !== null) count += 1
+  if (status.value !== 'ALL' && status.value !== 'OPEN') count += 1
+  if (priority.value !== '') count += 1
+  if (hasCreatedFilter.value) count += 1
+  if (hasCompletedFilter.value) count += 1
+  return count
+})
+const filterProjectOptions = computed(() => [
+  { value: '', label: '全部项目' },
+  { value: '__none__', label: '未关联项目' },
+  ...projects.value.map((project) => ({ value: project.name, label: project.title }))
+])
+const filterModuleOptions = computed(() => {
+  const modules = activeProject.value && activeProject.value !== ''
+    ? projects.value.find((project) => project.name === activeProject.value)?.modules ?? []
+    : [...new Set(projects.value.flatMap((project) => project.modules))]
+  return [
+    { value: '', label: '全部模块' },
+    { value: '__none__', label: '未分模块' },
+    ...modules.map((name) => ({ value: name, label: name }))
+  ]
+})
+const filterProjectModel = computed({
+  get: () => activeProject.value ?? '',
+  set: (value: string) => {
+    activeProject.value = value === '__none__' ? '' : value || null
+  }
+})
+const filterModuleModel = computed({
+  get: () => activeModule.value ?? '',
+  set: (value: string) => {
+    activeModule.value = value === '__none__' ? '' : value || null
+  }
 })
 const sortDirectionLabel = computed(() => {
   const desc = sortDir.value === 'desc'
@@ -336,6 +368,13 @@ function clearSelection(): void {
   activeProject.value = null
   activeModule.value = null
 }
+
+watch(activeProject, () => {
+  if (activeModule.value && activeModule.value !== ''
+    && !filterModuleOptions.value.some((option) => option.value === activeModule.value)) {
+    activeModule.value = null
+  }
+})
 
 function clearAllFilters(): void {
   clearSelection()
@@ -928,6 +967,7 @@ function handleMenuPointerDown(event: PointerEvent): void {
   if (bulkMenuOpen.value && !inside(bulkMenuRef.value)) bulkMenuOpen.value = false
   if (copyMenuOpen.value && !inside(copyMenuRef.value)) copyMenuOpen.value = false
   if (viewsOpen.value && !inside(viewMenuRef.value)) viewsOpen.value = false
+  if (filterOpen.value && !inside(filterMenuRef.value)) filterOpen.value = false
 }
 
 function handleMenuKeydown(event: KeyboardEvent): void {
@@ -935,6 +975,7 @@ function handleMenuKeydown(event: KeyboardEvent): void {
   bulkMenuOpen.value = false
   copyMenuOpen.value = false
   viewsOpen.value = false
+  filterOpen.value = false
 }
 
 function toggleSelect(name: string): void {
@@ -1363,7 +1404,7 @@ onUnmounted(() => {
   <div class="ws-view">
     <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1.5">
-      <div class="relative min-w-[130px] flex-1 sm:max-w-[200px]">
+      <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -1498,18 +1539,113 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <Select v-model="status" class="w-[104px]" aria-label="完成状态">
-        <option value="ALL">全部状态</option>
-        <option value="OPEN">未完成</option>
-        <option value="DONE">已完成</option>
-        <option value="DISMISSED">不用处理</option>
-      </Select>
-      <Select v-model="priority" class="w-[118px]" aria-label="优先级">
-        <option value="">全部优先级</option>
-        <option value="HIGH">高</option>
-        <option value="MEDIUM">中</option>
-        <option value="LOW">低</option>
-      </Select>
+      <div ref="filterMenuRef" class="relative">
+        <Button
+          :variant="filterOpen ? 'primary' : 'secondary'"
+          size="sm"
+          class="ws-filter-toggle relative"
+          :aria-expanded="filterOpen"
+          :aria-label="activeFilterCount ? `筛选（${activeFilterCount} 项已启用）` : '筛选'"
+          :title="activeFilterCount ? `筛选：${activeFilterCount} 项已启用` : '筛选'"
+          @click="filterOpen = !filterOpen"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M3 3.5h10L9.5 8v4.2l-3-1.5V8L3 3.5z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+            />
+          </svg>
+          筛选
+          <span
+            v-if="activeFilterCount"
+            class="ml-0.5 rounded-full px-1.5 text-[10px] font-semibold tabular-nums"
+            :class="filterOpen
+              ? 'bg-white/25 text-white dark:bg-black/20 dark:text-[#0A0A0C]'
+              : 'bg-[#007AFF]/[0.12] text-[#007AFF] dark:bg-[#0A84FF]/[0.18] dark:text-[#64B5FF]'"
+          >{{ activeFilterCount }}</span>
+        </Button>
+        <div
+          v-if="filterOpen"
+          class="ws-filter-panel absolute left-0 top-full z-40 mt-1 w-[420px] max-w-[calc(100vw-3rem)] rounded-xl border border-black/[0.08] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+        >
+          <div class="grid grid-cols-2 gap-2">
+            <div class="ws-filter-field flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">项目</span>
+              <SearchSelect
+                v-model="filterProjectModel"
+                :options="filterProjectOptions"
+                aria-label="按项目筛选"
+                class="w-full"
+              />
+            </div>
+            <div class="ws-filter-field flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">模块</span>
+              <SearchSelect
+                v-model="filterModuleModel"
+                :options="filterModuleOptions"
+                aria-label="按模块筛选"
+                class="w-full"
+              />
+            </div>
+            <div class="ws-filter-field flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">状态</span>
+              <Select v-model="status" class="w-full" aria-label="完成状态">
+                <option value="ALL">全部状态</option>
+                <option value="OPEN">未完成</option>
+                <option value="DONE">已完成</option>
+                <option value="DISMISSED">不用处理</option>
+              </Select>
+            </div>
+            <div class="ws-filter-field flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">优先级</span>
+              <Select v-model="priority" class="w-full" aria-label="优先级">
+                <option value="">全部优先级</option>
+                <option value="HIGH">高</option>
+                <option value="MEDIUM">中</option>
+                <option value="LOW">低</option>
+              </Select>
+            </div>
+          </div>
+          <div
+            class="mt-3 space-y-2 border-t border-black/[0.06] pt-3 text-[12px] text-[#6e6e73] dark:border-white/[0.08] dark:text-[#98989d]"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="w-[52px] shrink-0 font-medium">创建时间</span>
+              <input v-model="createdFrom" type="date" class="ws-date" aria-label="创建时间起" />
+              <span>至</span>
+              <input v-model="createdTo" type="date" class="ws-date" aria-label="创建时间止" />
+              <Button
+                v-if="hasCreatedFilter"
+                variant="ghost"
+                size="sm"
+                @click="createdFrom = ''; createdTo = ''"
+              >清除</Button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="w-[52px] shrink-0 font-medium">完成时间</span>
+              <input v-model="completedFrom" type="date" class="ws-date" aria-label="完成时间起" />
+              <span>至</span>
+              <input v-model="completedTo" type="date" class="ws-date" aria-label="完成时间止" />
+              <Button
+                v-if="hasCompletedFilter"
+                variant="ghost"
+                size="sm"
+                @click="completedFrom = ''; completedTo = ''"
+              >清除</Button>
+            </div>
+          </div>
+          <div
+            class="mt-3 flex items-center justify-end gap-2 border-t border-black/[0.06] pt-2 dark:border-white/[0.08]"
+          >
+            <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearAllFilters">
+              清除筛选
+            </Button>
+            <Button size="sm" @click="filterOpen = false">完成</Button>
+          </div>
+        </div>
+      </div>
       <Select v-model="sortField" class="w-[112px]" aria-label="排序字段">
         <option value="created">创建时间</option>
         <option value="completed">完成时间</option>
@@ -1542,28 +1678,6 @@ onUnmounted(() => {
             stroke-linejoin="round"
           />
         </svg>
-      </Button>
-      <Button
-        :variant="timeOpen ? 'primary' : 'secondary'"
-        size="sm"
-        class="ws-time-toggle relative"
-        :aria-expanded="timeOpen"
-        aria-controls="ws-time-filter"
-        :aria-label="timeOpen ? '收起时间筛选' : '展开时间筛选'"
-        :title="timeFilterTitle"
-        @click="timeOpen = !timeOpen"
-      >
-        <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <rect x="2.5" y="3.5" width="11" height="10" rx="2" stroke="currentColor" stroke-width="1.3" />
-          <path d="M2.5 6.5h11M5.5 2.5v2M10.5 2.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
-        </svg>
-        时间
-        <span
-          v-if="hasTimeFilters"
-          class="absolute right-2 top-2 h-1.5 w-1.5 rounded-full"
-          :class="timeOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
-          aria-hidden="true"
-        ></span>
       </Button>
       <Button
         :variant="showFinished ? 'primary' : 'secondary'"
@@ -1642,57 +1756,6 @@ onUnmounted(() => {
           </svg>
           新建待办
         </Button>
-      </div>
-    </div>
-
-    <div
-      v-if="timeOpen"
-      id="ws-time-filter"
-      class="ws-date-filter mb-4 inline-flex max-w-full flex-wrap items-center gap-x-5 gap-y-2 rounded-[18px] border border-black/[0.06] bg-white/[0.55] px-4 py-3 text-[12px] text-[#6e6e73] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#98989d]"
-    >
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="font-medium">创建时间</span>
-        <input
-          v-model="createdFrom"
-          type="date"
-          class="ws-date"
-          aria-label="创建时间起"
-        />
-        <span>至</span>
-        <input
-          v-model="createdTo"
-          type="date"
-          class="ws-date"
-          aria-label="创建时间止"
-        />
-        <Button
-          v-if="hasCreatedFilter"
-          variant="ghost"
-          size="sm"
-          @click="createdFrom = ''; createdTo = ''"
-        >清除</Button>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="font-medium">完成时间</span>
-        <input
-          v-model="completedFrom"
-          type="date"
-          class="ws-date"
-          aria-label="完成时间起"
-        />
-        <span>至</span>
-        <input
-          v-model="completedTo"
-          type="date"
-          class="ws-date"
-          aria-label="完成时间止"
-        />
-        <Button
-          v-if="hasCompletedFilter"
-          variant="ghost"
-          size="sm"
-          @click="completedFrom = ''; completedTo = ''"
-        >清除</Button>
       </div>
     </div>
     </template>
