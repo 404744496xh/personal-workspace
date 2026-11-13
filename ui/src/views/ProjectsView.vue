@@ -17,6 +17,7 @@ import type { NotesTarget, TodosTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
+import SearchSelect from '../components/ui/SearchSelect.vue'
 import ProjectForm from '../components/ProjectForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
@@ -43,6 +44,12 @@ const emit = defineEmits<{
 const projects = ref<Project[]>(cachedProjects ?? [])
 const todos = ref<Todo[]>(cachedTodos?.items ?? [])
 const keyword = ref(takeSearchTarget())
+const progressFilter = ref('')
+const progressOptions = [
+  { value: '', label: '全部状态' },
+  { value: 'open', label: '未完成项目' },
+  { value: 'done', label: '已完成项目' }
+]
 const loading = ref(!cachedProjects)
 const error = ref('')
 
@@ -67,12 +74,18 @@ const stats = computed(() => {
   return result
 })
 
+const hasProjectFilters = computed(() =>
+  keyword.value.trim() !== '' || progressFilter.value !== '')
+
 const filteredProjects = computed(() => {
   const needle = keyword.value.trim().toLowerCase()
-  if (!needle) return projects.value
-  return projects.value.filter((project) =>
-    [project.title, project.note ?? '', ...project.modules, ...project.links]
-      .some((value) => value.toLowerCase().includes(needle)))
+  return projects.value.filter((project) => {
+    if (progressFilter.value === 'done' && project.progress < 100) return false
+    if (progressFilter.value === 'open' && project.progress >= 100) return false
+    if (!needle) return true
+    return [project.title, project.note ?? '', ...project.modules, ...project.links]
+      .some((value) => value.toLowerCase().includes(needle))
+  })
 })
 
 function statsOf(name: string): ProjectStats {
@@ -223,6 +236,7 @@ onMounted(() => {
     <ToolsToggle
       v-if="toolsCollapsed"
       v-model="keyword"
+      :active="progressFilter !== ''"
       placeholder="搜索项目、模块或备注"
       search-label="搜索项目"
       @expand="toolsCollapsed = false"
@@ -241,6 +255,12 @@ onMounted(() => {
         </svg>
         <Input v-model="keyword" class="ws-search pl-10" placeholder="搜索项目、模块或备注" />
       </div>
+      <SearchSelect
+        v-model="progressFilter"
+        :options="progressOptions"
+        aria-label="按项目状态筛选"
+        class="w-[150px]"
+      />
       <Button variant="primary" class="ml-auto" @click="openCreate">
         <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -272,12 +292,12 @@ onMounted(() => {
       class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
     >
       <p class="ws-state-title text-[15px] font-semibold">
-        {{ keyword.trim() ? '没有匹配的项目' : '还没有项目' }}
+        {{ hasProjectFilters ? '没有匹配的项目' : '还没有项目' }}
       </p>
       <p class="ws-muted text-[13px] text-[#6e6e73] dark:text-[#98989d]">
-        {{ keyword.trim() ? '换个关键词试试' : '把正在做的事建成项目，集中管理模块、进度和链接' }}
+        {{ hasProjectFilters ? '换个关键词或状态试试' : '把正在做的事建成项目，集中管理模块、进度和链接' }}
       </p>
-      <Button v-if="!keyword.trim()" class="mt-2" variant="primary" @click="openCreate">
+      <Button v-if="!hasProjectFilters" class="mt-2" variant="primary" @click="openCreate">
         新建项目
       </Button>
     </section>

@@ -17,7 +17,7 @@ import type { TodosTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
 import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
-import Select from '../components/ui/Select.vue'
+import SearchSelect from '../components/ui/SearchSelect.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
@@ -47,6 +47,7 @@ const moduleFilter = ref(
   target?.module !== undefined ? (target.module === '' ? '__none__' : target.module) : ''
 )
 const todoFilter = ref(target?.todo ?? '')
+const projectStatus = ref('')
 const includeProjectTodos = ref(target?.includeProjectTodos === true)
 const pendingNoteName = ref(target?.noteName ?? null)
 const pendingCreate = ref(target?.create === true)
@@ -97,10 +98,40 @@ const todoOptions = computed(() =>
   })
 )
 
+const projectOptions = computed(() => [
+  { value: '', label: '全部项目' },
+  { value: '__none__', label: '未关联项目' },
+  ...projects.value.map((project) => ({ value: project.name, label: project.title }))
+])
+
+const projectStatusOptions = [
+  { value: '', label: '全部状态' },
+  { value: 'open', label: '未完成项目' },
+  { value: 'done', label: '已完成项目' }
+]
+
+const moduleSelectOptions = computed(() => [
+  { value: '', label: '全部模块' },
+  { value: '__none__', label: '未分模块' },
+  ...moduleOptions.value.map((item) => ({ value: item, label: item }))
+])
+
+const todoSelectOptions = computed(() => [
+  { value: '', label: '全部待办' },
+  ...todoOptions.value.map((todo) => ({
+    value: todo.name,
+    label: `${todo.title}${todo.dismissed ? '（不用处理）' : ''}`
+  }))
+])
+
+const projectProgressOf = computed(() =>
+  new Map(projects.value.map((project) => [project.name, project.progress])))
+
 const hasFilters = computed(() => keyword.value.trim() !== ''
-  || projectFilter.value !== '' || moduleFilter.value !== '' || todoFilter.value !== '')
-const hasHiddenFilters = computed(() => projectFilter.value !== ''
+  || projectFilter.value !== '' || projectStatus.value !== ''
   || moduleFilter.value !== '' || todoFilter.value !== '')
+const hasHiddenFilters = computed(() => projectFilter.value !== ''
+  || projectStatus.value !== '' || moduleFilter.value !== '' || todoFilter.value !== '')
 
 function matchesFilters(note: NoteSummary): boolean {
   if (projectFilter.value) {
@@ -112,6 +143,11 @@ function matchesFilters(note: NoteSummary): boolean {
         (name) => todoProjectOf.value.get(name) === projectFilter.value)
       if (!includeProjectTodos.value || !sameProjectTodo) return false
     }
+  }
+  if (projectStatus.value) {
+    const progress = note.project ? projectProgressOf.value.get(note.project) : undefined
+    if (progress == null) return false
+    if (projectStatus.value === 'done' ? progress < 100 : progress >= 100) return false
   }
   if (moduleFilter.value) {
     if (moduleFilter.value === '__none__') {
@@ -162,6 +198,7 @@ watch(moduleFilter, () => {
 function clearFilters(): void {
   keyword.value = ''
   projectFilter.value = ''
+  projectStatus.value = ''
   moduleFilter.value = ''
   todoFilter.value = ''
   includeProjectTodos.value = false
@@ -385,7 +422,7 @@ onUnmounted(() => {
       />
       <template v-if="!toolsCollapsed">
       <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
-      <div class="relative min-w-[180px] flex-1 sm:max-w-[340px]">
+      <div class="relative min-w-[150px] flex-1 sm:max-w-[340px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -397,42 +434,62 @@ onUnmounted(() => {
         </svg>
         <Input v-model="keyword" class="ws-search pl-10" placeholder="搜索笔记标题或正文" />
       </div>
+      <template v-if="notes.length">
+        <SearchSelect
+          v-model="projectFilter"
+          :options="projectOptions"
+          aria-label="按项目筛选"
+          class="w-[140px]"
+        />
+        <span
+          v-if="includeProjectTodos && projectFilter && projectFilter !== '__none__'"
+          class="inline-flex min-h-8 items-center rounded-full bg-[#007AFF]/[0.10] px-2.5 text-[11px] font-medium text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]"
+          title="包含该项目下模块与待办关联的笔记"
+        >含待办笔记</span>
+        <SearchSelect
+          v-model="projectStatus"
+          :options="projectStatusOptions"
+          aria-label="按项目状态筛选"
+          class="w-[120px]"
+        />
+        <SearchSelect
+          v-model="moduleFilter"
+          :options="moduleSelectOptions"
+          :disabled="!moduleOptions.length"
+          aria-label="按模块筛选"
+          class="w-[120px]"
+        />
+        <SearchSelect
+          v-model="todoFilter"
+          :options="todoSelectOptions"
+          :disabled="!todoOptions.length"
+          aria-label="按待办筛选"
+          class="w-[150px]"
+        />
+        <Button
+          v-if="hasFilters"
+          variant="ghost"
+          size="icon"
+          aria-label="清除筛选"
+          title="清除筛选"
+          @click="clearFilters"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M4 4l8 8M12 4l-8 8"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </Button>
+      </template>
       <Button variant="primary" class="ml-auto" @click="openCreate">
         <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>
         新建笔记
       </Button>
-    </div>
-
-    <div
-      v-if="notes.length"
-      class="ws-note-filter mb-4 flex flex-wrap items-center gap-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
-    >
-      <Select v-model="projectFilter" class="w-[180px]" aria-label="按项目筛选">
-        <option value="">全部项目</option>
-        <option value="__none__">未关联项目</option>
-        <option v-for="project in projects" :key="project.name" :value="project.name">
-          {{ project.title }}
-        </option>
-      </Select>
-      <span
-        v-if="includeProjectTodos && projectFilter && projectFilter !== '__none__'"
-        class="inline-flex min-h-7 items-center rounded-full bg-[#007AFF]/[0.10] px-2.5 text-[11px] font-medium text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]"
-        title="包含该项目下模块与待办关联的笔记"
-      >含待办笔记</span>
-      <Select v-model="moduleFilter" class="w-[150px]" aria-label="按模块筛选" :disabled="!moduleOptions.length">
-        <option value="">全部模块</option>
-        <option value="__none__">未分模块</option>
-        <option v-for="item in moduleOptions" :key="item" :value="item">{{ item }}</option>
-      </Select>
-      <Select v-model="todoFilter" class="w-[200px]" aria-label="按待办筛选" :disabled="!todoOptions.length">
-        <option value="">全部待办</option>
-        <option v-for="todo in todoOptions" :key="todo.name" :value="todo.name">
-          {{ todo.title }}{{ todo.dismissed ? '（不用处理）' : '' }}
-        </option>
-      </Select>
-      <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearFilters">清除筛选</Button>
     </div>
       </template>
 

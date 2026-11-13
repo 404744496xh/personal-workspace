@@ -4,7 +4,7 @@ Halo 2.26+ 的前台个人工作台插件：把待办、项目、快速命令与
 
 后端 Java 21 + WebFlux，前端 Vue 3 + Vite + Tailwind，笔记编辑器使用 Vditor。
 
-当前版本：`0.6.73`
+当前版本：`0.6.74`
 
 ![待办](docs/screenshots/todos.png)
 
@@ -57,6 +57,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 - 卡片展示进度、待办统计、模块、备注与关联链接
 - 新建 / 编辑 / 删除；模块可增删改名，改名时服务端原子迁移该项目下引用旧名的待办
 - 卡片悬停可查看关联笔记或待办
+- 支持关键词搜索，并按进度筛选未完成 / 已完成项目
 
 ### 快速命令
 
@@ -74,6 +75,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 - 支持表格、行内 HTML 预览；粘贴或拖入图片自动上传为站点附件并插入 Markdown
 - 可关联项目、模块与多个待办；「属性」弹窗编辑关联，不打断正文
 - 点击卡片直接打开编辑；卡片上的项目 / 模块 / 待办标签可跳到项目页、该模块待办或具体待办（多个待办时先选一个）
+- 搜索与筛选收在一行：项目、项目状态（未完成 / 已完成）、模块、待办支持输入搜索匹配，可组合过滤
 
 ![笔记编辑器](docs/screenshots/note-editor.png)
 
@@ -98,7 +100,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 
 ```bash
 ./gradlew build
-# 产物：build/libs/personal-workspace-0.6.73.jar
+# 产物：build/libs/personal-workspace-0.6.74.jar
 ```
 
 打开 Halo Console →「插件 → 安装」，上传 jar 并启用，然后访问 `/workspace`。
@@ -165,7 +167,7 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`，所有响应带 `Cache-Control:
 | POST | `/commands` | 创建命令 |
 | PUT | `/commands/{name}` | 更新命令 |
 | DELETE | `/commands/{name}?confirm=true` | 删除命令 |
-| GET | `/notes` | 笔记列表，含正文、关联与更新时间 |
+| GET | `/notes` | 笔记列表，含摘要、关联与更新时间 |
 | POST | `/notes` | 创建笔记 |
 | PUT | `/notes/{name}` | 更新笔记，服务端刷新 `updatedAt` |
 | DELETE | `/notes/{name}?confirm=true` | 删除笔记 |
