@@ -195,8 +195,6 @@ const activeFilterCount = computed(() => {
   let count = 0
   if (activeProject.value !== null) count += 1
   if (activeModule.value !== null) count += 1
-  if (status.value !== 'ALL' && status.value !== 'OPEN') count += 1
-  if (priority.value !== '') count += 1
   return count
 })
 const timeFilterTitle = computed(() => {
@@ -1415,8 +1413,8 @@ onUnmounted(() => {
 <template>
   <div class="ws-view">
     <template v-if="!toolsCollapsed">
-    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1.5">
-      <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
+    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1">
+      <div class="relative min-w-[130px] flex-1 sm:max-w-[160px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -1430,7 +1428,7 @@ onUnmounted(() => {
           v-model="keyword"
           class="ws-search pl-10 pr-11"
           type="search"
-          placeholder="搜索标题或详情"
+          placeholder="搜索待办"
           aria-label="搜索待办"
         />
         <div ref="viewMenuRef" class="absolute right-1 top-1/2 z-10 -translate-y-1/2">
@@ -1554,11 +1552,11 @@ onUnmounted(() => {
       <div ref="filterMenuRef" class="relative">
         <Button
           :variant="filterOpen ? 'primary' : 'secondary'"
-          size="sm"
+          size="icon"
           class="ws-filter-toggle relative"
           :aria-expanded="filterOpen"
-          :aria-label="activeFilterCount ? `筛选（${activeFilterCount} 项已启用）` : '筛选'"
-          :title="activeFilterCount ? `筛选：${activeFilterCount} 项已启用` : '筛选'"
+          :aria-label="activeFilterCount ? `项目模块筛选（${activeFilterCount} 项已启用）` : '项目模块筛选'"
+          :title="activeFilterCount ? `项目模块筛选：${activeFilterCount} 项已启用` : '按项目 / 模块筛选'"
           @click="filterOpen = !filterOpen"
         >
           <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -1569,18 +1567,16 @@ onUnmounted(() => {
               stroke-linejoin="round"
             />
           </svg>
-          筛选
           <span
             v-if="activeFilterCount"
-            class="ml-0.5 rounded-full px-1.5 text-[10px] font-semibold tabular-nums"
-            :class="filterOpen
-              ? 'bg-white/25 text-white dark:bg-black/20 dark:text-[#0A0A0C]'
-              : 'bg-[#007AFF]/[0.12] text-[#007AFF] dark:bg-[#0A84FF]/[0.18] dark:text-[#64B5FF]'"
-          >{{ activeFilterCount }}</span>
+            class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full"
+            :class="filterOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
+            aria-hidden="true"
+          ></span>
         </Button>
         <div
           v-if="filterOpen"
-          class="ws-filter-panel absolute left-0 top-full z-40 mt-1 w-[420px] max-w-[calc(100vw-3rem)] rounded-xl border border-black/[0.08] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+          class="ws-filter-panel absolute left-0 top-full z-40 mt-1 w-[360px] max-w-[calc(100vw-3rem)] rounded-xl border border-black/[0.08] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
         >
           <div class="grid grid-cols-2 gap-2">
             <div class="ws-filter-field flex flex-col gap-1">
@@ -1601,24 +1597,6 @@ onUnmounted(() => {
                 class="w-full"
               />
             </div>
-            <div class="ws-filter-field flex flex-col gap-1">
-              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">状态</span>
-              <Select v-model="status" class="w-full" aria-label="完成状态">
-                <option value="ALL">全部状态</option>
-                <option value="OPEN">未完成</option>
-                <option value="DONE">已完成</option>
-                <option value="DISMISSED">不用处理</option>
-              </Select>
-            </div>
-            <div class="ws-filter-field flex flex-col gap-1">
-              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">优先级</span>
-              <Select v-model="priority" class="w-full" aria-label="优先级">
-                <option value="">全部优先级</option>
-                <option value="HIGH">高</option>
-                <option value="MEDIUM">中</option>
-                <option value="LOW">低</option>
-              </Select>
-            </div>
           </div>
           <div
             class="mt-3 flex items-center justify-end gap-2 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]"
@@ -1630,31 +1608,19 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <div ref="timeMenuRef" class="relative">
-        <Button
-          :variant="timeOpen ? 'primary' : 'secondary'"
-          size="sm"
-          class="ws-time-toggle relative"
-          :aria-expanded="timeOpen"
-          aria-controls="ws-time-filter"
-          :aria-label="timeOpen ? '收起时间筛选' : '展开时间筛选'"
-          :title="timeFilterTitle"
-          @click="timeOpen = !timeOpen"
-        >
-          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <rect x="2.5" y="3.5" width="11" height="10" rx="2" stroke="currentColor" stroke-width="1.3" />
-            <path d="M2.5 6.5h11M5.5 2.5v2M10.5 2.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
-          </svg>
-          时间
-          <span
-            v-if="hasTimeFilters"
-            class="absolute right-2 top-2 h-1.5 w-1.5 rounded-full"
-            :class="timeOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
-            aria-hidden="true"
-          ></span>
-        </Button>
-      </div>
-      <Select v-model="sortField" class="w-[112px]" aria-label="排序字段">
+      <Select v-model="status" class="w-[100px]" aria-label="完成状态">
+        <option value="ALL">全部状态</option>
+        <option value="OPEN">未完成</option>
+        <option value="DONE">已完成</option>
+        <option value="DISMISSED">不用处理</option>
+      </Select>
+      <Select v-model="priority" class="w-[116px]" aria-label="优先级">
+        <option value="">全部优先级</option>
+        <option value="HIGH">高</option>
+        <option value="MEDIUM">中</option>
+        <option value="LOW">低</option>
+      </Select>
+      <Select v-model="sortField" class="w-[104px]" aria-label="排序字段">
         <option value="created">创建时间</option>
         <option value="completed">完成时间</option>
         <option value="due">截止时间</option>
@@ -1687,6 +1653,30 @@ onUnmounted(() => {
           />
         </svg>
       </Button>
+      <div ref="timeMenuRef" class="relative">
+        <Button
+          :variant="timeOpen ? 'primary' : 'secondary'"
+          size="sm"
+          class="ws-time-toggle relative"
+          :aria-expanded="timeOpen"
+          aria-controls="ws-time-filter"
+          :aria-label="timeOpen ? '收起时间筛选' : '展开时间筛选'"
+          :title="timeFilterTitle"
+          @click="timeOpen = !timeOpen"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="2.5" y="3.5" width="11" height="10" rx="2" stroke="currentColor" stroke-width="1.3" />
+            <path d="M2.5 6.5h11M5.5 2.5v2M10.5 2.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+          时间
+          <span
+            v-if="hasTimeFilters"
+            class="absolute right-2 top-2 h-1.5 w-1.5 rounded-full"
+            :class="timeOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
+            aria-hidden="true"
+          ></span>
+        </Button>
+      </div>
       <Button
         :variant="showFinished ? 'primary' : 'secondary'"
         size="icon"
@@ -1728,8 +1718,7 @@ onUnmounted(() => {
           <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
         </svg>
       </Button>
-      <div class="ml-auto flex flex-wrap items-center gap-1.5">
-        <span class="hidden h-5 w-px bg-black/[0.07] dark:bg-white/10 sm:block" aria-hidden="true"></span>
+      <div class="ml-auto flex flex-wrap items-center gap-1">
         <Button
           :variant="importOpen ? 'primary' : 'secondary'"
           size="icon"
