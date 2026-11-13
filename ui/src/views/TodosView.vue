@@ -13,11 +13,12 @@ import {
   updateTodo
 } from '../api'
 import type { Priority, Project, Todo, TodoPayload } from '../types'
-import { formatDate, formatDateTime, messageOf, priorityClass, priorityLabel, todayString } from '../utils'
+import { formatDate, formatDateTime, messageOf, priorityLabel } from '../utils'
 import { takeSearchTarget, takeTodosTarget } from '../searchTarget'
 import type { NotesTarget } from '../searchTarget'
 import TodoForm from '../components/TodoForm.vue'
 import QuickAddTodo from '../components/QuickAddTodo.vue'
+import TodoRow from '../components/TodoRow.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
 import TodoImportDialog from '../components/TodoImportDialog.vue'
@@ -31,6 +32,9 @@ import Select from '../components/ui/Select.vue'
 type StatusFilter = 'ALL' | 'OPEN' | 'DONE' | 'DISMISSED'
 type SortField = 'created' | 'completed' | 'due' | 'priority'
 type SortDirection = 'desc' | 'asc'
+type TodoViewMode = 'grouped' | 'flat'
+
+const VIEW_MODE_KEY = 'workspace:todo-view-mode'
 
 interface FilterState {
   keyword: string
@@ -114,6 +118,8 @@ const savingModule = ref(false)
 const moduleError = ref('')
 
 const sortField = ref<SortField>('created')
+const viewMode = ref<TodoViewMode>(
+  localStorage.getItem(VIEW_MODE_KEY) === 'flat' ? 'flat' : 'grouped')
 const sortDir = ref<SortDirection>('desc')
 const createdFrom = ref('')
 const createdTo = ref(todosTarget?.stale ? staleCutoff() : '')
@@ -522,6 +528,20 @@ function sortTodos(list: Todo[]): Todo[] {
 
 function toggleSortDir(): void {
   sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc'
+}
+
+function toggleViewMode(): void {
+  viewMode.value = viewMode.value === 'grouped' ? 'flat' : 'grouped'
+  localStorage.setItem(VIEW_MODE_KEY, viewMode.value)
+}
+
+function todoScope(todo: Todo): string {
+  return todo.module ? `${projectTitleOf(todo)} · ${todo.module}` : projectTitleOf(todo)
+}
+
+function filterByScope(todo: Todo): void {
+  activeProject.value = projectKeyOf(todo)
+  activeModule.value = todo.module || null
 }
 
 function buildGroups(todos: Todo[], projectList: Project[],
@@ -1327,13 +1347,7 @@ function askDelete(todo: Todo): void {
   persistCache()
 }
 
-function isOverdue(todo: Todo): boolean {
-  return Boolean(todo.dueDate && !todo.completed && !todo.dismissed
-    && todo.dueDate < todayString())
-}
-
-onMounted(() => {
-  void load({ silent: Boolean(cachedTodos) })
+onMounted(() => {  void load({ silent: Boolean(cachedTodos) })
   document.addEventListener('pointerdown', handleMenuPointerDown)
   document.addEventListener('keydown', handleMenuKeydown)
 })
@@ -1575,6 +1589,21 @@ onUnmounted(() => {
           />
           <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
           <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+      </Button>
+      <Button
+        :variant="viewMode === 'flat' ? 'primary' : 'secondary'"
+        size="icon"
+        :aria-label="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
+        :title="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
+        :aria-pressed="viewMode === 'flat'"
+        @click="toggleViewMode"
+      >
+        <svg v-if="viewMode === 'flat'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3 4.5h10M5.5 8h7.5M5.5 11.5h7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
         </svg>
       </Button>
       <div class="ml-auto flex flex-wrap items-center gap-1.5">
@@ -1866,7 +1895,7 @@ onUnmounted(() => {
 
     <div v-else class="ws-groups flex flex-col gap-4">
       <section
-        v-if="!groups.length"
+        v-if="viewMode === 'flat' ? !visibleItems.length : !groups.length"
         class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
       >
         <p class="ws-state-title text-[15px] font-semibold">
@@ -1899,6 +1928,7 @@ onUnmounted(() => {
         >新建待办</Button>
       </section>
 
+      <template v-if="viewMode === 'grouped'">
       <section
         v-for="group in groups"
         :key="group.key || 'unclassified'"
@@ -2216,169 +2246,23 @@ onUnmounted(() => {
                 v-if="moduleGroup.label && !moduleGroup.todos.length"
                 class="ws-module-empty px-3 pb-2 pt-1 text-[12px] text-[#1d1d1f]/35 dark:text-[#f5f5f7]/30"
               >暂无待办</p>
-              <article
+              <TodoRow
                 v-for="todo in moduleGroup.todos"
                 :key="todo.name"
-                class="ws-todo group flex items-start gap-1 rounded-xl px-1 transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
-                :class="{
-                  done: todo.completed,
-                  dismissed: todo.dismissed,
-                  'bg-[#007AFF]/[0.06] dark:bg-[#0A84FF]/[0.10]': selecting && selected.has(todo.name)
-                }"
-              >
-                <label
-                  v-if="selecting"
-                  class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
-                >
-                  <input
-                    class="ws-select h-5 w-5 accent-[#007AFF]"
-                    type="checkbox"
-                    :checked="selected.has(todo.name)"
-                    :disabled="bulkBusy"
-                    :aria-label="`选择 ${todo.title}`"
-                    @change="toggleSelect(todo.name)"
-                  />
-                </label>
-                <label
-                  v-else
-                  class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
-                >
-                  <input
-                    class="ws-check h-5 w-5 accent-[#007AFF]"
-                    type="checkbox"
-                    :checked="todo.completed"
-                    :disabled="busy === todo.name || bulkBusy"
-                    :aria-label="`标记 ${todo.title} 完成`"
-                    @change="toggle(todo)"
-                  />
-                </label>
-                <div
-                  class="ws-todo-body min-w-0 flex-1 cursor-pointer py-2.5"
-                  @click="selecting ? toggleSelect(todo.name) : openEdit(todo)"
-                >
-                  <div class="ws-todo-top flex items-baseline gap-2">
-                    <h4
-                      class="min-w-0 flex-1 truncate text-[14px]"
-                      :class="todo.completed || todo.dismissed
-                        ? 'text-[#1d1d1f]/45 dark:text-[#f5f5f7]/40'
-                        : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
-                    >{{ todo.title }}</h4>
-                    <span
-                      v-if="todo.dismissed"
-                      class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
-                    >不用处理</span>
-                    <span
-                      class="ws-prio shrink-0 text-[11px] font-medium tabular-nums"
-                      :class="priorityClass(todo.priority)"
-                    >{{ priorityLabel(todo.priority) }}</span>
-                  </div>
-                  <p
-                    v-if="todo.detail"
-                    class="ws-todo-detail line-clamp-2 text-[12px] text-[#6e6e73] dark:text-[#98989d]"
-                  >{{ todo.detail }}</p>
-                  <div
-                    v-if="todo.reporter || todo.dueDate || todo.completedAt || todo.createdAt"
-                    class="ws-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]"
-                  >
-                    <span v-if="todo.reporter" class="ws-reporter">姓名 {{ todo.reporter }}</span>
-                    <span
-                      v-if="todo.dueDate"
-                      class="ws-due"
-                      :class="isOverdue(todo) ? 'text-[#FF3B30]' : ''"
-                    >{{ todo.dueDate }}</span>
-                    <span v-if="todo.completedAt" class="ws-completed-at">
-                      完成于 {{ formatDateTime(todo.completedAt) }}
-                    </span>
-                    <span v-if="todo.createdAt" class="ws-created-at">
-                      创建于 {{ formatDateTime(todo.createdAt) }}
-                    </span>
-                  </div>
-                </div>
-                <div
-                  class="ws-todo-actions flex shrink-0 items-center self-center transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    :aria-label="`为 ${todo.title} 新建笔记`"
-                    title="新建笔记"
-                    @click="createNoteHere({ todo: todo.name })"
-                  >
-                    <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path
-                        d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
-                        stroke="currentColor"
-                        stroke-width="1.4"
-                      />
-                      <path d="M7 5.5v5M4.5 8h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                    </svg>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    :disabled="noteBusy !== null"
-                    :aria-label="`查看 ${todo.title} 的关联笔记`"
-                    title="查看关联笔记"
-                    @click="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
-                  >
-                    <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path
-                        d="M3.5 2.5h7a1 1 0 011 1v9a1 1 0 01-1 1h-7a1 1 0 01-1-1v-9a1 1 0 011-1z"
-                        stroke="currentColor"
-                        stroke-width="1.4"
-                      />
-                      <path d="M5.5 5h4M5.5 7.5h4M5.5 10h2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                    </svg>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    :disabled="busy === todo.name"
-                    :aria-label="todo.dismissed
-                      ? `恢复 ${todo.title} 到待办`
-                      : `将 ${todo.title} 标记为不用处理`"
-                    :title="todo.dismissed ? '恢复到待办' : '不用处理'"
-                    @click="setDismissed(todo, !todo.dismissed)"
-                  >
-                    <svg v-if="todo.dismissed" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path
-                        d="M3.5 7a4.8 4.8 0 118.2 3.4M3.5 3.5V7h3.5"
-                        stroke="currentColor"
-                        stroke-width="1.4"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                    <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path
-                        d="M2.5 4h11v2.2h-11zM3.7 6.2V13h8.6V6.2M6.3 9h3.4"
-                        stroke="currentColor"
-                        stroke-width="1.4"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="text-[#FF3B30]/75 hover:text-[#FF3B30]"
-                    aria-label="删除"
-                    title="删除"
-                    @click="askDelete(todo)"
-                  >
-                    <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path
-                        d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.6 8.5h6.8l.6-8.5"
-                        stroke="currentColor"
-                        stroke-width="1.4"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </Button>
-                </div>
-              </article>
+                :todo="todo"
+                :selecting="selecting"
+                :selected="selected.has(todo.name)"
+                :busy="busy === todo.name"
+                :bulk-busy="bulkBusy"
+                :note-busy="noteBusy !== null"
+                @select="toggleSelect(todo.name)"
+                @toggle="toggle(todo)"
+                @edit="openEdit(todo)"
+                @create-note="createNoteHere({ todo: todo.name })"
+                @related-notes="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
+                @dismiss="setDismissed(todo, !todo.dismissed)"
+                @remove="askDelete(todo)"
+              />
               <QuickAddTodo
                 v-if="moduleGroup.label && !selecting"
                 :create="(title) => quickCreate(group.key, moduleGroup.key, title)"
@@ -2396,8 +2280,37 @@ onUnmounted(() => {
           />
         </div>
       </section>
+      </template>
+
+      <section
+        v-else-if="visibleItems.length"
+        class="ws-flat-list overflow-hidden rounded-[18px] border border-white/20 bg-white/[0.72] shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
+      >
+        <div class="px-2 pb-3 pt-2">
+          <TodoRow
+            v-for="todo in visibleItems"
+            :key="todo.name"
+            :todo="todo"
+            :selecting="selecting"
+            :selected="selected.has(todo.name)"
+            :busy="busy === todo.name"
+            :bulk-busy="bulkBusy"
+            :note-busy="noteBusy !== null"
+            :scope="todoScope(todo)"
+            @select="toggleSelect(todo.name)"
+            @toggle="toggle(todo)"
+            @edit="openEdit(todo)"
+            @create-note="createNoteHere({ todo: todo.name })"
+            @related-notes="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
+            @dismiss="setDismissed(todo, !todo.dismissed)"
+            @remove="askDelete(todo)"
+            @filter="filterByScope(todo)"
+          />
+        </div>
+      </section>
 
       <div
+        v-if="viewMode === 'grouped'"
         class="ws-create-project rounded-[18px] border border-dashed border-black/[0.14] bg-white/50 p-2 backdrop-blur-xl dark:border-white/[0.14] dark:bg-white/[0.03]"
       >
         <Button
