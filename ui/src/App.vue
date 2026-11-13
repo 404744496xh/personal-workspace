@@ -30,7 +30,7 @@ const navItems: NavItem[] = [
   { key: 'backup', label: '备份', subtitle: '导出与导入个人数据' }
 ]
 
-const tab = ref<TabKey>('home')
+const tab = ref<TabKey>(takeReloadTab())
 const viewKey = ref(0)
 const SIDEBAR_KEY = 'workspace:sidebar-hidden'
 const sidebarHidden = ref(localStorage.getItem(SIDEBAR_KEY) === '1')
@@ -39,6 +39,27 @@ const initialUsername = rootElement?.dataset.username?.trim() ?? ''
 const me = ref<{ username: string } | null>(initialUsername ? { username: initialUsername } : null)
 const authState = ref<AuthState>(initialUsername ? 'ok' : 'unauthorized')
 const loginUrl = '/login?redirect_uri=' + encodeURIComponent('/workspace')
+
+const RELOAD_TAB_KEY = 'workspace:reload-tab'
+const RELOAD_GUARD_KEY = 'workspace:unauthorized-reload-at'
+const KEEP_ALIVE_MS = 5 * 60 * 1000
+let keepAliveTimer: ReturnType<typeof setInterval> | undefined
+let recoveringUnauthorized = false
+
+function isTabKey(value: string | null): value is TabKey {
+  return value === 'home' || navItems.some((item) => item.key === value)
+}
+
+function takeReloadTab(): TabKey {
+  const value = sessionStorage.getItem(RELOAD_TAB_KEY)
+  sessionStorage.removeItem(RELOAD_TAB_KEY)
+  return isTabKey(value) ? value : 'home'
+}
+
+function keepSessionAlive(): void {
+  if (authState.value !== 'ok') return
+  fetch('/actuator/health', { credentials: 'same-origin' }).catch(() => {})
+}
 
 interface ShortcutConfig {
   ctrl: boolean
@@ -123,10 +144,16 @@ function onShortcutKeydown(event: KeyboardEvent): void {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onShortcutKeydown, true))
+onMounted(() => {
+  window.addEventListener('keydown', onShortcutKeydown, true)
+  document.addEventListener('visibilitychange', keepSessionAlive)
+  keepAliveTimer = window.setInterval(keepSessionAlive, KEEP_ALIVE_MS)
+})
 onBeforeUnmount(() => {
   resetShortcut()
   window.removeEventListener('keydown', onShortcutKeydown, true)
+  document.removeEventListener('visibilitychange', keepSessionAlive)
+  if (keepAliveTimer) window.clearInterval(keepAliveTimer)
 })
 
 const current = computed(() => {
@@ -143,6 +170,17 @@ const SEARCH_TAB: Record<SearchType, TabKey> = {
 }
 
 function onUnauthorized(): void {
+  // 会话过期时整页重新请求可让 Halo 凭 remember-me 恢复登录，等价于用户手动刷新一次
+  if (!recoveringUnauthorized) {
+    recoveringUnauthorized = true
+    const last = Number(sessionStorage.getItem(RELOAD_GUARD_KEY) ?? '0')
+    if (Date.now() - last > 60_000) {
+      sessionStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+      sessionStorage.setItem(RELOAD_TAB_KEY, tab.value)
+      window.location.reload()
+      return
+    }
+  }
   me.value = null
   authState.value = 'unauthorized'
 }

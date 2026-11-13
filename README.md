@@ -4,7 +4,7 @@ Halo 2.26+ 的前台个人工作台插件：把待办、项目、快速命令与
 
 后端 Java 21 + WebFlux，前端 Vue 3 + Vite + Tailwind，笔记编辑器使用 Vditor。
 
-当前版本：`0.6.71`
+当前版本：`0.6.73`
 
 ![待办](docs/screenshots/todos.png)
 
@@ -98,7 +98,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 
 ```bash
 ./gradlew build
-# 产物：build/libs/personal-workspace-0.6.71.jar
+# 产物：build/libs/personal-workspace-0.6.73.jar
 ```
 
 打开 Halo Console →「插件 → 安装」，上传 jar 并启用，然后访问 `/workspace`。
