@@ -154,8 +154,11 @@ const showFinished = ref(
       project.name === todosTarget.project && project.progress >= 100)
     : false)
 let jumpApplied = showFinished.value || !todosTarget?.project
-const filterOpen = ref(Boolean(todosTarget?.stale))
+const filterOpen = ref(false)
 const filterMenuRef = ref<HTMLElement | null>(null)
+const timeOpen = ref(Boolean(todosTarget?.stale))
+const timeMenuRef = ref<HTMLElement | null>(null)
+const timePanelRef = ref<HTMLElement | null>(null)
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
 const savingRename = ref(false)
 const renameError = ref('')
@@ -194,9 +197,14 @@ const activeFilterCount = computed(() => {
   if (activeModule.value !== null) count += 1
   if (status.value !== 'ALL' && status.value !== 'OPEN') count += 1
   if (priority.value !== '') count += 1
-  if (hasCreatedFilter.value) count += 1
-  if (hasCompletedFilter.value) count += 1
   return count
+})
+const timeFilterTitle = computed(() => {
+  const parts = [
+    hasCreatedFilter.value ? '创建时间' : '',
+    hasCompletedFilter.value ? '完成时间' : ''
+  ].filter(Boolean)
+  return parts.length ? `时间筛选：已设置${parts.join('、')}` : '时间筛选'
 })
 const filterProjectOptions = computed(() => [
   { value: '', label: '全部项目' },
@@ -968,6 +976,9 @@ function handleMenuPointerDown(event: PointerEvent): void {
   if (copyMenuOpen.value && !inside(copyMenuRef.value)) copyMenuOpen.value = false
   if (viewsOpen.value && !inside(viewMenuRef.value)) viewsOpen.value = false
   if (filterOpen.value && !inside(filterMenuRef.value)) filterOpen.value = false
+  if (timeOpen.value && !inside(timeMenuRef.value) && !inside(timePanelRef.value)) {
+    timeOpen.value = false
+  }
 }
 
 function handleMenuKeydown(event: KeyboardEvent): void {
@@ -976,6 +987,7 @@ function handleMenuKeydown(event: KeyboardEvent): void {
   copyMenuOpen.value = false
   viewsOpen.value = false
   filterOpen.value = false
+  timeOpen.value = false
 }
 
 function toggleSelect(name: string): void {
@@ -1609,35 +1621,7 @@ onUnmounted(() => {
             </div>
           </div>
           <div
-            class="mt-3 space-y-2 border-t border-black/[0.06] pt-3 text-[12px] text-[#6e6e73] dark:border-white/[0.08] dark:text-[#98989d]"
-          >
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="w-[52px] shrink-0 font-medium">创建时间</span>
-              <input v-model="createdFrom" type="date" class="ws-date" aria-label="创建时间起" />
-              <span>至</span>
-              <input v-model="createdTo" type="date" class="ws-date" aria-label="创建时间止" />
-              <Button
-                v-if="hasCreatedFilter"
-                variant="ghost"
-                size="sm"
-                @click="createdFrom = ''; createdTo = ''"
-              >清除</Button>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="w-[52px] shrink-0 font-medium">完成时间</span>
-              <input v-model="completedFrom" type="date" class="ws-date" aria-label="完成时间起" />
-              <span>至</span>
-              <input v-model="completedTo" type="date" class="ws-date" aria-label="完成时间止" />
-              <Button
-                v-if="hasCompletedFilter"
-                variant="ghost"
-                size="sm"
-                @click="completedFrom = ''; completedTo = ''"
-              >清除</Button>
-            </div>
-          </div>
-          <div
-            class="mt-3 flex items-center justify-end gap-2 border-t border-black/[0.06] pt-2 dark:border-white/[0.08]"
+            class="mt-3 flex items-center justify-end gap-2 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]"
           >
             <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearAllFilters">
               清除筛选
@@ -1645,6 +1629,30 @@ onUnmounted(() => {
             <Button size="sm" @click="filterOpen = false">完成</Button>
           </div>
         </div>
+      </div>
+      <div ref="timeMenuRef" class="relative">
+        <Button
+          :variant="timeOpen ? 'primary' : 'secondary'"
+          size="sm"
+          class="ws-time-toggle relative"
+          :aria-expanded="timeOpen"
+          aria-controls="ws-time-filter"
+          :aria-label="timeOpen ? '收起时间筛选' : '展开时间筛选'"
+          :title="timeFilterTitle"
+          @click="timeOpen = !timeOpen"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="2.5" y="3.5" width="11" height="10" rx="2" stroke="currentColor" stroke-width="1.3" />
+            <path d="M2.5 6.5h11M5.5 2.5v2M10.5 2.5v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+          时间
+          <span
+            v-if="hasTimeFilters"
+            class="absolute right-2 top-2 h-1.5 w-1.5 rounded-full"
+            :class="timeOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
+            aria-hidden="true"
+          ></span>
+        </Button>
       </div>
       <Select v-model="sortField" class="w-[112px]" aria-label="排序字段">
         <option value="created">创建时间</option>
@@ -1756,6 +1764,58 @@ onUnmounted(() => {
           </svg>
           新建待办
         </Button>
+      </div>
+    </div>
+
+    <div
+      v-if="timeOpen"
+      id="ws-time-filter"
+      ref="timePanelRef"
+      class="ws-date-filter mb-4 inline-flex max-w-full flex-wrap items-center gap-x-5 gap-y-2 rounded-[18px] border border-black/[0.06] bg-white/[0.55] px-4 py-3 text-[12px] text-[#6e6e73] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#98989d]"
+    >
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-medium">创建时间</span>
+        <input
+          v-model="createdFrom"
+          type="date"
+          class="ws-date"
+          aria-label="创建时间起"
+        />
+        <span>至</span>
+        <input
+          v-model="createdTo"
+          type="date"
+          class="ws-date"
+          aria-label="创建时间止"
+        />
+        <Button
+          v-if="hasCreatedFilter"
+          variant="ghost"
+          size="sm"
+          @click="createdFrom = ''; createdTo = ''"
+        >清除</Button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="font-medium">完成时间</span>
+        <input
+          v-model="completedFrom"
+          type="date"
+          class="ws-date"
+          aria-label="完成时间起"
+        />
+        <span>至</span>
+        <input
+          v-model="completedTo"
+          type="date"
+          class="ws-date"
+          aria-label="完成时间止"
+        />
+        <Button
+          v-if="hasCompletedFilter"
+          variant="ghost"
+          size="sm"
+          @click="completedFrom = ''; completedTo = ''"
+        >清除</Button>
       </div>
     </div>
     </template>
