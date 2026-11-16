@@ -1,7 +1,7 @@
 {
   "name": "personal-workspace-ui",
   "private": true,
-  "version": "0.6.93",
+  "version": "0.6.95",
   "type": "module",
   "scripts": {
     "dev": "vite",

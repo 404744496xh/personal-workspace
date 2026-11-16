@@ -28,6 +28,52 @@ const emit = defineEmits<{
 const CDN = '/plugins/personal-workspace/assets/vditor'
 const CONTENT_THEME_PATH = `${CDN}/dist/css/content-theme`
 
+const NOTE_TEMPLATES = [
+  {
+    name: 'Bug 复盘',
+    content: `## 背景
+（在哪个项目 / 模块、什么场景下发现）
+
+## 现象
+（用户看到的结果、报错信息、复现步骤）
+
+## 原因
+（根因分析）
+
+## 处理
+（修复方案、改动点、验证结果）
+
+## 后续
+- [ ] 补充测试
+- [ ] 补充监控 / 日志
+- [ ] 更新文档
+`
+  },
+  {
+    name: '技术决策',
+    content: `## 背景
+（要解决的问题、约束条件）
+
+## 方案对比
+| 方案 | 优点 | 缺点 |
+| --- | --- | --- |
+| 方案 A |  |  |
+| 方案 B |  |  |
+
+## 决定
+（选择哪个方案、关键理由）
+
+## 影响与风险
+（影响范围、兼容性、回滚方式）
+
+## 落地
+- [ ] 实施步骤
+- [ ] 验证方式
+- [ ] 后续观察
+`
+  }
+]
+
 const title = ref(props.note?.title ?? '')
 const content = ref(props.note?.content ?? '')
 const project = ref(props.note?.project ?? props.defaultProject ?? '')
@@ -280,6 +326,15 @@ function applyTheme(): void {
 
 function focusEditor(): void {
   vditor.value?.focus()
+}
+
+function useTemplate(template: string): void {
+  content.value = template
+  autoStatus.value = ''
+  vditor.value?.setValue(template)
+  vditor.value?.focus()
+  scheduleInlineHtml()
+  scheduleOutline()
 }
 
 async function handleUpload(files: File[]): Promise<string | null> {
@@ -586,6 +641,21 @@ onBeforeUnmount(() => {
       class="mx-6 mb-2 rounded-lg bg-[#FF3B30]/[0.08] px-3 py-2 text-[12px] text-[#FF3B30]"
       role="alert"
     >{{ localError }}</p>
+
+    <div
+      v-if="ready && !note && !content.trim()"
+      class="ws-note-templates mx-6 mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-black/[0.03] px-3 py-2 dark:bg-white/[0.05]"
+    >
+      <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">从模板开始</span>
+      <Button
+        v-for="item in NOTE_TEMPLATES"
+        :key="item.name"
+        variant="secondary"
+        size="sm"
+        class="ws-note-template"
+        @click="useTemplate(item.content)"
+      >{{ item.name }}</Button>
+    </div>
 
     <div class="relative min-h-0 flex-1">
       <div ref="editorEl" class="h-full"></div>
