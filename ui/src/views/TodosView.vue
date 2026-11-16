@@ -122,6 +122,14 @@ const sortField = ref<SortField>('created')
 const viewMode = ref<TodoViewMode>(
   localStorage.getItem(VIEW_MODE_KEY) === 'flat' ? 'flat' : 'grouped')
 const sortDir = ref<SortDirection>('desc')
+const sortOpen = ref(false)
+const sortMenuRef = ref<HTMLElement | null>(null)
+const SORT_OPTIONS: { value: SortField; label: string }[] = [
+  { value: 'created', label: '创建时间' },
+  { value: 'completed', label: '完成时间' },
+  { value: 'due', label: '截止时间' },
+  { value: 'priority', label: '优先级' }
+]
 const createdFrom = ref('')
 const createdTo = ref(todosTarget?.stale ? staleCutoff() : '')
 const completedFrom = ref('')
@@ -231,6 +239,8 @@ const filterModuleModel = computed({
     activeModule.value = value === '__none__' ? '' : value || null
   }
 })
+const sortFieldLabel = computed(
+  () => SORT_OPTIONS.find((option) => option.value === sortField.value)?.label ?? '创建时间')
 const sortDirectionLabel = computed(() => {
   const desc = sortDir.value === 'desc'
   if (sortField.value === 'priority') return desc ? '高→低' : '低→高'
@@ -573,6 +583,11 @@ function sortTodos(list: Todo[]): Todo[] {
 
 function toggleSortDir(): void {
   sortDir.value = sortDir.value === 'desc' ? 'asc' : 'desc'
+}
+
+function chooseSortField(value: SortField): void {
+  sortField.value = value
+  sortOpen.value = false
 }
 
 function toggleViewMode(): void {
@@ -977,6 +992,7 @@ function handleMenuPointerDown(event: PointerEvent): void {
   if (timeOpen.value && !inside(timeMenuRef.value) && !inside(timePanelRef.value)) {
     timeOpen.value = false
   }
+  if (sortOpen.value && !inside(sortMenuRef.value)) sortOpen.value = false
 }
 
 function handleMenuKeydown(event: KeyboardEvent): void {
@@ -986,6 +1002,7 @@ function handleMenuKeydown(event: KeyboardEvent): void {
   viewsOpen.value = false
   filterOpen.value = false
   timeOpen.value = false
+  sortOpen.value = false
 }
 
 function toggleSelect(name: string): void {
@@ -1620,39 +1637,91 @@ onUnmounted(() => {
         <option value="MEDIUM">中</option>
         <option value="LOW">低</option>
       </Select>
-      <Select v-model="sortField" class="w-[104px]" aria-label="排序字段">
-        <option value="created">创建时间</option>
-        <option value="completed">完成时间</option>
-        <option value="due">截止时间</option>
-        <option value="priority">优先级</option>
-      </Select>
-      <Button
-        variant="secondary"
-        size="icon"
-        class="ws-sort-dir"
-        :aria-label="`排序方向：${sortDirectionLabel}`"
-        :title="`排序方向：${sortDirectionLabel}（点击切换）`"
-        @click="toggleSortDir"
+      <div
+        ref="sortMenuRef"
+        class="ws-sort-control relative inline-flex h-11 items-stretch rounded-full border border-black/[0.08] bg-white/80 dark:border-white/10 dark:bg-white/[0.06]"
       >
-        <svg v-if="sortDir === 'desc'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M8 3v10M4.5 9.5L8 13l3.5-3.5"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M8 13V3M4.5 6.5L8 3l3.5 3.5"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </Button>
+        <button
+          type="button"
+          class="flex items-center gap-1 whitespace-nowrap rounded-l-full pl-4 pr-2 text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+          :aria-expanded="sortOpen"
+          aria-haspopup="menu"
+          :aria-label="`排序字段：${sortFieldLabel}`"
+          :title="`排序字段：${sortFieldLabel}`"
+          @click="sortOpen = !sortOpen"
+        >
+          {{ sortFieldLabel }}
+          <svg class="h-4 w-4 text-black/30 dark:text-white/30" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M6 8l4 4 4-4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+        <span class="my-2.5 w-px shrink-0 bg-black/[0.08] dark:bg-white/10" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="ws-sort-dir flex w-11 items-center justify-center rounded-r-full text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:text-[#98989d] dark:hover:bg-white/[0.06] dark:hover:text-[#f5f5f7]"
+          :aria-label="`排序方向：${sortDirectionLabel}（点击切换）`"
+          :title="`排序方向：${sortDirectionLabel}（点击切换）`"
+          @click="toggleSortDir"
+        >
+          <svg v-if="sortDir === 'desc'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M8 3v10M4.5 9.5L8 13l3.5-3.5"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M8 13V3M4.5 6.5L8 3l3.5 3.5"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+        <div
+          v-if="sortOpen"
+          class="ws-sort-menu absolute left-0 top-full z-40 mt-1 w-[148px] overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+          role="menu"
+          aria-label="排序字段"
+        >
+          <button
+            v-for="option in SORT_OPTIONS"
+            :key="option.value"
+            type="button"
+            role="menuitemradio"
+            :aria-checked="sortField === option.value"
+            class="flex min-h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+            @click="chooseSortField(option.value)"
+          >
+            <span class="flex-1">{{ option.label }}</span>
+            <svg
+              v-if="sortField === option.value"
+              class="h-3.5 w-3.5 shrink-0 text-[#007AFF] dark:text-[#64B5FF]"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M3.5 8.5l3 3 6-7"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
       <div ref="timeMenuRef" class="relative">
         <Button
           :variant="timeOpen ? 'primary' : 'secondary'"
