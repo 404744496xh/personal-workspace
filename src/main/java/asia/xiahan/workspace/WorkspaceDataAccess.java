@@ -74,6 +74,10 @@ public class WorkspaceDataAccess {
         return listTodoBy(condition, PageRequestImpl.of(query.page(), query.size(), TODO_SORT));
     }
 
+    public Flux<WorkspaceTodo> listAllTodos(String owner) {
+        return listOwned(WorkspaceTodo.class, owner, TODO_SORT);
+    }
+
     public Mono<WorkspaceTodo> getTodo(String owner, String name) {
         return client.fetch(WorkspaceTodo.class, name)
             .filter(todo -> todo.getSpec() != null && owner.equals(todo.getSpec().getOwner()))

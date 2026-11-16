@@ -90,6 +90,22 @@ public class AiImportService {
         return (System.nanoTime() - started) / 1_000_000;
     }
 
+    // 供周期报告等场景复用同一套模型配置与超时控制
+    public Mono<String> chat(String systemPrompt, String userText) {
+        var started = System.nanoTime();
+        log.info("AI chat start: chars={}", userText.length());
+        return settings()
+            .flatMap(ai -> callModel(ai, systemPrompt, userText))
+            .timeout(TIMEOUT)
+            .doOnNext(output -> log.info("AI chat done: chars={}, elapsedMs={}",
+                output.length(), elapsedMs(started)))
+            .doOnError(error -> log.warn("AI chat failed: elapsedMs={}, error={}",
+                elapsedMs(started), error.toString()))
+            .onErrorMap(TimeoutException.class,
+                error -> new ApiException(HttpStatus.GATEWAY_TIMEOUT, "AI_TIMEOUT",
+                    "AI 生成超时（90 秒），请稍后重试"));
+    }
+
     // 项目列表在提示词里只取前 100 个；导入目标可能更晚创建，需要单独取出来
     private Mono<WorkspaceProject> resolveTarget(String owner, String targetProject,
         List<WorkspaceProject> projects) {

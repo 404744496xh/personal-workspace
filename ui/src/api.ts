@@ -9,6 +9,8 @@ import type {
   ProjectPayload,
   QuickCmd,
   QuickCmdPayload,
+  ReportPayload,
+  ReportResult,
   SearchResponse,
   Todo,
   TodoListResponse,
@@ -167,6 +169,13 @@ export function getNote(name: string): Promise<Note> {
 
 export function createNote(payload: NotePayload): Promise<Note> {
   return request('/notes', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function generateReport(payload: ReportPayload): Promise<ReportResult> {
+  return request('/report', {
     method: 'POST',
     body: JSON.stringify(payload)
   })

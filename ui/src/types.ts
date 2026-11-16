@@ -103,6 +103,17 @@ export interface NotePayload {
   todos?: string[]
 }
 
+export interface ReportPayload {
+  view: 'month' | 'week'
+  start: string
+  end: string
+}
+
+export interface ReportResult {
+  title: string
+  content: string
+}
+
 export type SearchType = 'todo' | 'project' | 'command' | 'note'
 
 export interface SearchHit {

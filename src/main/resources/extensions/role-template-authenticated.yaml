@@ -8,5 +8,5 @@ metadata:
     rbac.authorization.halo.run/aggregate-to-authenticated: "true"
 rules:
   - apiGroups: ["api.workspace.halo.run"]
-    resources: ["todos", "projects", "projects/modules", "commands", "notes", "images", "search", "backup"]
+    resources: ["todos", "projects", "projects/modules", "commands", "notes", "images", "search", "report", "backup"]
     verbs: ["get", "list", "create", "update", "delete"]

@@ -13,6 +13,7 @@ import asia.xiahan.workspace.dto.ProjectView;
 import asia.xiahan.workspace.dto.QuickCmdUpsertRequest;
 import asia.xiahan.workspace.dto.QuickCmdView;
 import asia.xiahan.workspace.dto.SearchResponse;
+import asia.xiahan.workspace.dto.ReportRequest;
 import asia.xiahan.workspace.dto.TodoListResponse;
 import asia.xiahan.workspace.dto.TodoQuery;
 import asia.xiahan.workspace.dto.TodoUpsertRequest;
@@ -68,13 +69,15 @@ public class WorkspaceEndpoint implements CustomEndpoint {
     private final WorkspaceDataAccess dataAccess;
     private final Validator validator;
     private final AttachmentService attachmentService;
+    private final ReportService reportService;
 
     public WorkspaceEndpoint(CurrentUser currentUser, WorkspaceDataAccess dataAccess,
-        Validator validator, AttachmentService attachmentService) {
+        Validator validator, AttachmentService attachmentService, ReportService reportService) {
         this.currentUser = currentUser;
         this.dataAccess = dataAccess;
         this.validator = validator;
         this.attachmentService = attachmentService;
+        this.reportService = reportService;
     }
 
     @Override
@@ -102,6 +105,7 @@ public class WorkspaceEndpoint implements CustomEndpoint {
             .DELETE("/notes/{name}", this::deleteNote)
             .POST("/images", this::uploadImage)
             .GET("/search", this::search)
+            .POST("/report", this::generateReport)
             .GET("/backup", this::exportBackup)
             .POST("/backup", this::importBackup)
             .build();
@@ -110,6 +114,15 @@ public class WorkspaceEndpoint implements CustomEndpoint {
     @Override
     public GroupVersion groupVersion() {
         return new GroupVersion("api.workspace.halo.run", "v1alpha1");
+    }
+
+    private Mono<ServerResponse> generateReport(ServerRequest request) {
+        return handle(currentUser.requireUsername()
+            .flatMap(username -> request.bodyToMono(ReportRequest.class)
+                .switchIfEmpty(Mono.error(
+                    new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "请求体不能为空")))
+                .flatMap(body -> reportService.generate(username, body)))
+            .flatMap(WorkspaceEndpoint::okJson));
     }
 
     private Mono<ServerResponse> listTodos(ServerRequest request) {
