@@ -19,6 +19,9 @@ import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
+import run.halo.app.extension.ConfigMap;
+import run.halo.app.extension.ReactiveExtensionClient;
+import tools.jackson.databind.json.JsonMapper;
 
 // 周期报告：后端聚合全部待办、项目与笔记，再交给同一个 OpenAI 兼容模型写成 Markdown
 @Component
@@ -34,36 +37,52 @@ public class ReportService {
     private static final Pattern REPORT_TITLE = Pattern.compile(
         "^(?:\\d{4} 年 \\d{1,2} 月工作月报|\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2} 工作周报)$");
 
-    private static final String SYSTEM_PROMPT = """
+    private static final String SETTINGS_CONFIG_MAP = "personal-workspace-config";
+    private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
+
+    private static final String BASE_SYSTEM_PROMPT = """
         你是软件研发团队的工作汇报助手。请根据用户提供的真实工作数据，写一份可以直接发给直属上级或项目群的中文周报/月报正文。
         必须遵守的规则：
         1. 只使用提供的数据。不要虚构项目、数字、人名、截止时间、动作或结论；没有数据支撑的内容直接省略或写「待补充」，不要用空话填充。
-        2. 固定结构，使用二级标题：
+        2. 严格按 <template> 中的结构撰写正文；模板里的写作提示只用于指导内容，不要原样输出，也不要输出模板说明。
+        3. 周报使用「本周 / 下周」，月报使用「本月 / 下月」。正文不要输出一级标题，也不要使用代码围栏。
+        4. Markdown 表格最多 4 列，确保能正常渲染。
+        """;
+
+    // 与 settings.yaml 中 reportTemplate 的默认值保持一致，配置缺失或为空时使用
+    private static final String DEFAULT_TEMPLATE = """
+        写作要求（不要输出本段）：务实具体、少套话，不使用「赋能、闭环、抓手、持续深耕」等词；正文 900-1600 字。
+
         ## 一、结论
-        2-3 句话：整体状态（正常 / 有风险）＋本期最重要的结果＋最大的风险，结论先行，并带上关键数字（新增 / 完成 / 不用处理、项目数）。仅当存在超过 7 天未完成、高优先级未完成或明显逾期时判为「有风险」；没有明确证据不要写「已阻塞」。
+        用 2-3 句话给出整体状态（正常 / 有风险）、本期最重要的结果与最大风险，结论先行，并带上关键数字（新增 / 完成 / 不用处理、项目数）。仅当存在超过 7 天未完成、高优先级未完成或明显逾期时判为「有风险」；没有明确证据不要写「已阻塞」。
+
         ## 二、目标与进度
-        用 Markdown 表格，列不超过 4 个：项目 | 状态 | 本期进展 | 剩余工作。覆盖仍有剩余工作或本期有动向的项目。没有可靠百分比时用阶段或交付物描述，不编造百分比。
+        Markdown 表格：项目 | 状态 | 本期进展 | 剩余工作。覆盖仍有剩余工作或本期有动向的项目；没有可靠百分比时用阶段或交付物描述，不编造百分比。
+
         ## 三、关键交付与成果
         3-5 条（数据不足时可减少）。每条写成「做了什么 → 结果/影响」，合并同类事项；优先写已完成、已验证或已交付的结果，不要逐条抄待办标题。
+
         ## 四、风险、阻塞与资源需求
         有风险时用 Markdown 表格：风险 | 影响 | 建议应对 | 需要支持。只能基于数据中的逾期、长期未完成、高优先级未完成、进度停滞等线索；需要支持无法从数据判断时填「待确认」。没有风险时写「暂无明显阻塞」。
+
         ## 五、下期计划
         3-5 条，按优先级排序（高/中/低）。来自未完成待办和项目剩余工作，每条写清预期结果或检查点；不要写「继续推进」这类无法验收的表述。
+
         ## 六、知识沉淀
         2-4 条，从本期笔记中提炼可复用的方案、结论或经验；没有笔记时省略本节。
-        3. 周报使用「本周 / 下周」，月报使用「本月 / 下月」。正文不要输出一级标题，也不要使用代码围栏。
-        4. 语气务实、具体、少套话；不要使用「赋能、闭环、抓手、持续深耕」等词。正文 900-1600 字。
-        5. Markdown 表格最多 4 列，确保能正常渲染。
         """;
 
     private static final ZoneId ZONE = ZoneId.systemDefault();
 
     private final WorkspaceDataAccess dataAccess;
     private final AiImportService ai;
+    private final ReactiveExtensionClient client;
 
-    public ReportService(WorkspaceDataAccess dataAccess, AiImportService ai) {
+    public ReportService(WorkspaceDataAccess dataAccess, AiImportService ai,
+        ReactiveExtensionClient client) {
         this.dataAccess = dataAccess;
         this.ai = ai;
+        this.client = client;
     }
 
     public Mono<ReportResponse> generate(String owner, ReportRequest request) {
@@ -87,9 +106,35 @@ public class ReportService {
             .flatMap(tuple -> {
                 var prompt = buildPrompt(view, start, end,
                     tuple.getT1(), tuple.getT2(), tuple.getT3());
-                return ai.chat(SYSTEM_PROMPT, prompt);
+                return reportTemplate()
+                    .flatMap(template -> ai.chat(systemPrompt(template), prompt));
             })
             .map(raw -> new ReportResponse(title, compose(raw)));
+    }
+
+    private Mono<String> reportTemplate() {
+        return client.fetch(ConfigMap.class, SETTINGS_CONFIG_MAP)
+            .mapNotNull(configMap -> configMap.getData() == null
+                ? null : configMap.getData().get("ai"))
+            .map(ReportService::readTemplate)
+            .filter(template -> !template.isBlank())
+            .defaultIfEmpty(DEFAULT_TEMPLATE)
+            .onErrorResume(error -> Mono.just(DEFAULT_TEMPLATE));
+    }
+
+    private static String readTemplate(String json) {
+        try {
+            var node = JSON_MAPPER.readTree(json);
+            var template = node == null ? null : node.get("reportTemplate");
+            return template == null || template.isNull() ? "" : template.asString().trim();
+        } catch (Exception error) {
+            return "";
+        }
+    }
+
+    private static String systemPrompt(String template) {
+        var value = template == null || template.isBlank() ? DEFAULT_TEMPLATE : template;
+        return BASE_SYSTEM_PROMPT + "\n<template>\n" + value.strip() + "\n</template>\n";
     }
 
     private static LocalDate parseDate(String value, String label) {
@@ -263,7 +308,7 @@ public class ReportService {
             }
         }
 
-        builder.append("\n请严格按系统提示的结构撰写报告正文，不要复述数据清单，也不要输出报告结构说明。");
+        builder.append("\n请严格按系统提示中的模板撰写报告正文，不要复述数据清单，也不要输出模板说明。");
         return builder.toString();
     }
 
