@@ -284,6 +284,10 @@ function heatClass(completed: number): string {
 function openStaleTodos(): void {
   emit('openTodos', { status: 'OPEN', stale: true })
 }
+
+function openTodoDetail(todo: Todo): void {
+  emit('openTodos', { todo: todo.name })
+}
 </script>
 
 <template>
@@ -618,16 +622,20 @@ function openStaleTodos(): void {
             <span class="tabular-nums">{{ group.items.length }}</span>
           </h3>
           <ul v-if="group.items.length" class="mt-1.5 space-y-1">
-            <li
-              v-for="todo in group.items"
-              :key="todo.name"
-              class="ws-day-detail-item rounded-lg bg-black/[0.03] px-3 py-1.5 dark:bg-white/[0.05]"
-            >
-              <p class="text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]">{{ todo.title }}</p>
-              <p
-                v-if="detailMeta(todo)"
-                class="mt-0.5 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
-              >{{ detailMeta(todo) }}</p>
+            <li v-for="todo in group.items" :key="todo.name">
+              <button
+                type="button"
+                class="ws-day-detail-item w-full rounded-lg bg-black/[0.03] px-3 py-1.5 text-left transition-colors duration-150 hover:bg-black/[0.06] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]"
+                :aria-label="`在待办中打开 ${todo.title}`"
+                :title="`在待办中打开：${todo.title}`"
+                @click="openTodoDetail(todo)"
+              >
+                <span class="block text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]">{{ todo.title }}</span>
+                <span
+                  v-if="detailMeta(todo)"
+                  class="mt-0.5 block text-[11px] text-[#8e8e93] dark:text-[#98989d]"
+                >{{ detailMeta(todo) }}</span>
+              </button>
             </li>
           </ul>
         </section>

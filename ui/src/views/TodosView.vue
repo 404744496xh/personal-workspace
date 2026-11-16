@@ -92,7 +92,7 @@ function staleCutoff(): string {
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-const status = ref<StatusFilter>(todosTarget?.status ?? 'OPEN')
+const status = ref<StatusFilter>(todosTarget?.todo ? 'ALL' : (todosTarget?.status ?? 'OPEN'))
 const priority = ref<Priority | ''>('')
 const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
@@ -162,6 +162,7 @@ const showFinished = ref(
       project.name === todosTarget.project && project.progress >= 100)
     : false)
 let jumpApplied = showFinished.value || !todosTarget?.project
+let todoJumpApplied = false
 const filterOpen = ref(false)
 const filterMenuRef = ref<HTMLElement | null>(null)
 const timeOpen = ref(Boolean(todosTarget?.stale))
@@ -727,6 +728,12 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
       showFinished.value = true
     }
     jumpApplied = true
+    if (!todoJumpApplied && todosTarget?.todo) {
+      todoJumpApplied = true
+      const targetName = todosTarget.todo
+      const targetTodo = todoList.items.find((todo) => todo.name === targetName)
+      if (targetTodo) openEdit(targetTodo)
+    }
     if (selected.value.size) {
       const alive = new Set(todoList.items.map((todo) => todo.name))
       selected.value = new Set([...selected.value].filter((name) => alive.has(name)))
