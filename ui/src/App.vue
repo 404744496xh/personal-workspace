@@ -222,7 +222,7 @@ function toggleSidebar(): void {
     class="ws-root min-h-[560px] bg-[#f5f5f7] p-3 text-[#1d1d1f] transition-colors duration-300 ease-[var(--ws-ease)] sm:p-6 lg:p-8 dark:bg-[#0b0b0c] dark:text-[#f5f5f7]"
   >
     <div
-      class="ws-shell mx-auto grid max-w-[1200px] grid-cols-1 gap-4 lg:gap-6"
+      class="ws-shell mx-auto grid max-w-[1360px] grid-cols-1 gap-4 lg:gap-6"
       :class="sidebarHidden ? 'lg:grid-cols-1' : 'lg:grid-cols-[208px_minmax(0,1fr)]'"
     >
       <aside

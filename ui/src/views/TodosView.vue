@@ -1414,7 +1414,7 @@ onUnmounted(() => {
   <div class="ws-view">
     <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1">
-      <div class="relative min-w-[130px] flex-1 sm:max-w-[160px]">
+      <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -1428,7 +1428,7 @@ onUnmounted(() => {
           v-model="keyword"
           class="ws-search pl-10 pr-11"
           type="search"
-          placeholder="搜索待办"
+          placeholder="搜索标题或详情"
           aria-label="搜索待办"
         />
         <div ref="viewMenuRef" class="absolute right-1 top-1/2 z-10 -translate-y-1/2">
