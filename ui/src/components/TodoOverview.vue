@@ -492,7 +492,7 @@ function openTodoDetail(todo: Todo): void {
             </span>
             <span
               v-if="hoverIndex >= 0"
-              class="ws-trend-guide pointer-events-none absolute inset-y-0 border-l border-dashed border-[#007AFF]/40 dark:border-[#64B5FF]/40"
+              class="ws-trend-guide pointer-events-none absolute inset-y-0 border-l border-[#007AFF]/25 dark:border-[#64B5FF]/25"
               :style="{ left: `${pointX(hoverIndex)}%` }"
             ></span>
             <span
