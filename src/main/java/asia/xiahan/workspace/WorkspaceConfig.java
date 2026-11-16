@@ -2,6 +2,7 @@ package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.AiImportRequest;
 import asia.xiahan.workspace.dto.AiImportResponse;
+import asia.xiahan.workspace.dto.NoteTemplateRequest;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -37,10 +38,43 @@ public class WorkspaceConfig {
 
     @Bean
     public RouterFunction<ServerResponse> workspaceAiRouter(CurrentUser currentUser,
-        AiImportService aiImportService) {
+        AiImportService aiImportService, NoteTemplateService noteTemplateService) {
         return RouterFunctions.route()
             .POST("/workspace/api/ai-import", request -> aiImport(request, currentUser, aiImportService))
+            .GET("/workspace/api/note-templates",
+                request -> noteTemplates(currentUser, noteTemplateService))
+            .PUT("/workspace/api/note-templates",
+                request -> saveNoteTemplates(request, currentUser, noteTemplateService))
             .build();
+    }
+
+    private static Mono<ServerResponse> noteTemplates(CurrentUser currentUser,
+        NoteTemplateService noteTemplateService) {
+        return currentUser.requireUsername()
+            .flatMap(noteTemplateService::get)
+            .flatMap(WorkspaceConfig::okJson)
+            .onErrorResume(ApiException.class, WorkspaceConfig::errorResponse)
+            .onErrorResume(error -> errorResponse(new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR", "服务暂时不可用，请稍后重试")));
+    }
+
+    private static Mono<ServerResponse> saveNoteTemplates(ServerRequest request,
+        CurrentUser currentUser, NoteTemplateService noteTemplateService) {
+        return currentUser.requireUsername()
+            .flatMap(username -> request.bodyToMono(NoteTemplateRequest.class)
+                .switchIfEmpty(Mono.error(ApiException.badRequest("请求体不能为空")))
+                .flatMap(body -> noteTemplateService.save(username, body)))
+            .flatMap(WorkspaceConfig::okJson)
+            .onErrorResume(ApiException.class, WorkspaceConfig::errorResponse)
+            .onErrorResume(error -> errorResponse(new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR", "服务暂时不可用，请稍后重试")));
+    }
+
+    private static Mono<ServerResponse> okJson(Object body) {
+        return ServerResponse.ok()
+            .contentType(MediaType.APPLICATION_JSON)
+            .header("Cache-Control", "no-store")
+            .bodyValue(body);
     }
 
     // 页面会话鉴权的接口不放 /apis 下，避免走 k8s 式 RBAC；CSRF 由 Halo 自带的过滤链校验

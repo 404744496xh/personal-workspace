@@ -2,7 +2,7 @@
 import type Vditor from 'vditor'
 import 'vditor/dist/index.css'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import type { Note, NotePayload, Project, Todo } from '../types'
+import type { Note, NotePayload, NoteTemplate, Project, Todo } from '../types'
 import { messageOf } from '../utils'
 import { uploadImage } from '../api'
 import { applyMermaidTheme } from '../mermaidTheme'
@@ -14,6 +14,7 @@ const props = defineProps<{
   note: Note | null
   projects: Project[]
   todos: Todo[]
+  templates: NoteTemplate[]
   saving: boolean
   persist: (payload: NotePayload) => Promise<boolean>
   defaultProject?: string
@@ -23,56 +24,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
+  manageTemplates: []
 }>()
 
 const CDN = '/plugins/personal-workspace/assets/vditor'
 const CONTENT_THEME_PATH = `${CDN}/dist/css/content-theme`
-
-const NOTE_TEMPLATES = [
-  {
-    name: 'Bug 复盘',
-    content: `## 背景
-（在哪个项目 / 模块、什么场景下发现）
-
-## 现象
-（用户看到的结果、报错信息、复现步骤）
-
-## 原因
-（根因分析）
-
-## 处理
-（修复方案、改动点、验证结果）
-
-## 后续
-- [ ] 补充测试
-- [ ] 补充监控 / 日志
-- [ ] 更新文档
-`
-  },
-  {
-    name: '技术决策',
-    content: `## 背景
-（要解决的问题、约束条件）
-
-## 方案对比
-| 方案 | 优点 | 缺点 |
-| --- | --- | --- |
-| 方案 A |  |  |
-| 方案 B |  |  |
-
-## 决定
-（选择哪个方案、关键理由）
-
-## 影响与风险
-（影响范围、兼容性、回滚方式）
-
-## 落地
-- [ ] 实施步骤
-- [ ] 验证方式
-- [ ] 后续观察
-`
-  }
-]
 
 const title = ref(props.note?.title ?? '')
 const content = ref(props.note?.content ?? '')
@@ -648,13 +604,19 @@ onBeforeUnmount(() => {
     >
       <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">从模板开始</span>
       <Button
-        v-for="item in NOTE_TEMPLATES"
+        v-for="item in templates"
         :key="item.name"
         variant="secondary"
         size="sm"
         class="ws-note-template"
         @click="useTemplate(item.content)"
       >{{ item.name }}</Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="ws-note-templates-manage ml-auto"
+        @click="emit('manageTemplates')"
+      >{{ templates.length ? '管理' : '新建模板' }}</Button>
     </div>
 
     <div class="relative min-h-0 flex-1">

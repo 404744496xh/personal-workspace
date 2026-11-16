@@ -4,7 +4,7 @@ Halo 2.26+ 的前台个人工作台插件：把待办、项目、快速命令与
 
 后端 Java 21 + WebFlux，前端 Vue 3 + Vite + Tailwind，笔记编辑器使用 Vditor。
 
-当前版本：`0.6.95`
+当前版本：`0.6.96`
 
 ![待办](docs/screenshots/todos.png)
 
@@ -81,7 +81,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 ![笔记](docs/screenshots/notes.png)
 
 - 页内 Markdown 编辑器（Vditor IR 模式），标题与正文直接铺开，停顿自动保存，`Ctrl/Cmd + S` 立即保存并返回
-- 新建空白笔记时可从「Bug 复盘 / 技术决策」快捷模板开始，自动带入背景、现象、原因、方案对比等结构
+- 新建空白笔记时可从快捷模板开始；笔记页「模板」按钮可新建、编辑、删除模板，保存到当前账号，新笔记模板按钮同步更新
 - 右侧标题大纲默认收起为贴边轨道，悬停展开，可固定成悬浮卡片
 - Mermaid 代码块（`` ```mermaid ``）直接渲染为 SVG，样式与前台文章一致，切换深浅色时按主题重绘
 - 支持表格、行内 HTML 预览；粘贴或拖入图片自动上传为站点附件并插入 Markdown
@@ -94,7 +94,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 ### 搜索与备份
 
 - 左侧栏底部全局搜索跨待办、项目、命令、笔记，点击结果跳到对应页面并带入关键词
-- 备份导出全部数据为 JSON；导入支持合并与覆盖（覆盖前二次确认），保留完成时间、不用处理状态、项目进度与笔记关联
+- 备份导出待办、项目、命令与笔记为 JSON（笔记模板单独保存，不参与备份）；导入支持合并与覆盖（覆盖前二次确认），保留完成时间、不用处理状态、项目进度与笔记关联
 
 ### 外观与操作
 
@@ -112,7 +112,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 
 ```bash
 ./gradlew build
-# 产物：build/libs/personal-workspace-0.6.95.jar
+# 产物：build/libs/personal-workspace-0.6.96.jar
 ```
 
 打开 Halo Console →「插件 → 安装」，上传 jar 并启用，然后访问 `/workspace`。
@@ -190,6 +190,8 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`，所有响应带 `Cache-Control:
 | POST | `/backup?replace=true\|false` | 导入备份 |
 
 AI 识别走页面接口：`POST /workspace/api/ai-import`，body `{text}`（≤20000 字符），会话鉴权并校验 CSRF；未配置返回 503，模型报错 502，超时 504。
+
+笔记模板走页面接口：`GET/PUT /workspace/api/note-templates`，会话鉴权并校验 CSRF。`GET` 返回 `{templates:[...] | null}`，`null` 表示尚未自定义（前端使用内置模板）；`PUT` body `{templates:[{name,content}]}`，最多 20 个模板，名称 ≤50 字、单个正文 ≤8000 字。
 
 请求体字段：
 

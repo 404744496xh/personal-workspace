@@ -103,6 +103,15 @@ export interface NotePayload {
   todos?: string[]
 }
 
+export interface NoteTemplate {
+  name: string
+  content: string
+}
+
+export interface NoteTemplateResponse {
+  templates: NoteTemplate[] | null
+}
+
 export interface ReportPayload {
   view: 'month' | 'week'
   start: string

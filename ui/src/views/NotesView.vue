@@ -5,12 +5,13 @@ import {
   createNote,
   deleteNote,
   getNote,
+  listNoteTemplates,
   listNotes,
   listProjects,
   listTodos,
   updateNote
 } from '../api'
-import type { Note, NotePayload, NoteSummary, Project, Todo } from '../types'
+import type { Note, NotePayload, NoteSummary, NoteTemplate, Project, Todo } from '../types'
 import { excerpt, formatDateTime, messageOf } from '../utils'
 import { takeNotesTarget, takeSearchTarget, setSearchTarget } from '../searchTarget'
 import type { TodosTarget } from '../searchTarget'
@@ -19,11 +20,13 @@ import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
 import SearchSelect from '../components/ui/SearchSelect.vue'
 import NoteEditor from '../components/NoteEditor.vue'
+import NoteTemplatesDialog from '../components/NoteTemplatesDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
+import { DEFAULT_NOTE_TEMPLATES } from '../noteTemplates'
 
 const cachedNotes = readCache<NoteSummary[]>('notes')
 const cachedProjects = readCache<Project[]>('projects')
@@ -60,6 +63,8 @@ const opening = ref(false)
 const createDefaults = ref<{ project?: string; module?: string; todo?: string }>({})
 const saving = ref(false)
 const pendingDelete = ref<NoteSummary | null>(null)
+const noteTemplates = ref<NoteTemplate[]>(DEFAULT_NOTE_TEMPLATES.map((template) => ({ ...template })))
+const templatesOpen = ref(false)
 const { toast, show } = useToast()
 
 const sortedNotes = computed(() => [...notes.value].sort((left, right) =>
@@ -216,14 +221,18 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   if (!options.silent) loading.value = true
   error.value = ''
   try {
-    const [noteList, projectList, todoList] = await Promise.all([
+    const [noteList, projectList, todoList, templateResponse] = await Promise.all([
       listNotes(),
       listProjects(),
-      listTodos({ size: 500 })
+      listTodos({ size: 500 }),
+      listNoteTemplates().catch(() => null)
     ])
     notes.value = noteList
     projects.value = projectList
     todos.value = todoList.items
+    if (templateResponse?.templates) {
+      noteTemplates.value = templateResponse.templates
+    }
     writeCache('notes', noteList)
     writeCache('projects', projectList)
     writeCache('todos', { items: todoList.items, total: todoList.total })
@@ -306,6 +315,10 @@ function closeEditor(): void {
   if (saving.value) return
   editorOpen.value = false
   editing.value = null
+}
+
+function applyTemplates(templates: NoteTemplate[]): void {
+  noteTemplates.value = templates
 }
 
 async function persist(payload: NotePayload): Promise<boolean> {
@@ -398,17 +411,26 @@ onUnmounted(() => {
 
 <template>
   <div class="ws-view" :class="editorOpen ? 'ws-view-editor' : ''">
+    <NoteTemplatesDialog
+      v-if="templatesOpen"
+      :templates="noteTemplates"
+      @close="templatesOpen = false"
+      @change="applyTemplates"
+    />
+
     <NoteEditor
       v-if="editorOpen"
       :note="editing"
       :projects="projects"
       :todos="todos"
+      :templates="noteTemplates"
       :saving="saving"
       :persist="persist"
       :default-project="createDefaults.project"
       :default-module="createDefaults.module"
       :default-todo="createDefaults.todo"
       @close="closeEditor"
+      @manage-templates="templatesOpen = true"
     />
 
     <template v-else>
@@ -484,7 +506,13 @@ onUnmounted(() => {
           </svg>
         </Button>
       </template>
-      <Button variant="primary" class="ml-auto" @click="openCreate">
+      <Button
+        variant="ghost"
+        class="ml-auto"
+        title="管理笔记模板"
+        @click="templatesOpen = true"
+      >模板</Button>
+      <Button variant="primary" @click="openCreate">
         <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
         </svg>

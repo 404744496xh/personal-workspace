@@ -5,6 +5,8 @@ import type {
   Note,
   NotePayload,
   NoteSummary,
+  NoteTemplate,
+  NoteTemplateResponse,
   Project,
   ProjectPayload,
   QuickCmd,
@@ -213,6 +215,50 @@ export function importBackup(payload: BackupData, replace: boolean): Promise<Bac
   return request(`/backup?replace=${replace ? 'true' : 'false'}`, {
     method: 'POST',
     body: JSON.stringify(payload)
+  })
+}
+
+function workspaceCsrfToken(): string {
+  return document.getElementById('workspace-app')?.dataset.csrf ?? ''
+}
+
+async function noteTemplateRequest<T>(init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  headers.set('Accept', 'application/json')
+  const token = workspaceCsrfToken()
+  if (token) headers.set('X-XSRF-TOKEN', token)
+  if (init.body != null) headers.set('Content-Type', 'application/json')
+  const response = await fetch('/workspace/api/note-templates', {
+    ...init,
+    credentials: 'same-origin',
+    headers
+  })
+  if (response.status === 401) {
+    throw new ApiError(401, 'UNAUTHORIZED', '请先登录')
+  }
+  if (!response.ok) {
+    let message = '请求失败，请稍后重试'
+    let code = `HTTP_${response.status}`
+    try {
+      const body = await response.json()
+      if (body?.error?.message) message = body.error.message
+      if (body?.error?.code) code = body.error.code
+    } catch {
+      // Keep the generic message when the response is not JSON.
+    }
+    throw new ApiError(response.status, code, message)
+  }
+  return response.json() as Promise<T>
+}
+
+export function listNoteTemplates(): Promise<NoteTemplateResponse> {
+  return noteTemplateRequest()
+}
+
+export function saveNoteTemplates(templates: NoteTemplate[]): Promise<NoteTemplateResponse> {
+  return noteTemplateRequest({
+    method: 'PUT',
+    body: JSON.stringify({ templates })
   })
 }
 
