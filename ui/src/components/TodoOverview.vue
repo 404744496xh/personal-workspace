@@ -4,6 +4,7 @@ import type { Project, Todo } from '../types'
 import type { TodosTarget } from '../searchTarget'
 import { formatDate, todayString } from '../utils'
 import Button from './ui/Button.vue'
+import Modal from './ui/Modal.vue'
 
 const props = defineProps<{ todos: Todo[]; projects: Project[] }>()
 const emit = defineEmits<{
@@ -22,6 +23,7 @@ const cardEl = ref<HTMLElement | null>(null)
 const hoverKey = ref<string | null>(null)
 const tipLeft = ref(0)
 const tipTop = ref(0)
+const detailKey = ref<string | null>(null)
 
 interface DayCount {
   created: number
@@ -226,7 +228,50 @@ function clearTip(): void {
   hoverKey.value = null
 }
 
-watch([view, cursor, weekCursor], () => clearTip())
+watch([view, cursor, weekCursor], () => {
+  clearTip()
+  detailKey.value = null
+})
+
+const detailDay = computed(() => {
+  if (!detailKey.value) return null
+  const key = detailKey.value
+  const created = props.todos.filter((todo) =>
+    Boolean(todo.createdAt && formatDate(todo.createdAt) === key))
+  const completed = props.todos.filter((todo) =>
+    Boolean(todo.completedAt && formatDate(todo.completedAt) === key))
+  const dismissed = props.todos.filter((todo) => {
+    if (!todo.dismissed) return false
+    const at = todo.dismissedAt || todo.createdAt
+    return Boolean(at && formatDate(at) === key)
+  })
+  return { key, created, completed, dismissed }
+})
+
+const detailLabel = computed(() => {
+  if (!detailDay.value) return ''
+  const date = new Date(`${detailDay.value.key}T00:00:00`)
+  const weekday = WEEKDAYS[(date.getDay() + 6) % 7]
+  return `${date.getMonth() + 1} 月 ${date.getDate()} 日 · 周${weekday}`
+})
+
+const detailGroups = computed(() => {
+  const day = detailDay.value
+  if (!day) return []
+  return [
+    { key: 'created', label: '新增', dot: 'bg-[#007AFF] dark:bg-[#64B5FF]', items: day.created },
+    { key: 'completed', label: '完成', dot: 'bg-[#34C759] dark:bg-[#30D158]', items: day.completed },
+    { key: 'dismissed', label: '不用处理', dot: 'bg-[#8e8e93] dark:bg-[#98989d]', items: day.dismissed }
+  ]
+})
+
+const detailEmpty = computed(() =>
+  detailGroups.value.every((group) => group.items.length === 0))
+
+function detailMeta(todo: Todo): string {
+  const project = props.projects.find((item) => item.name === todo.project)?.title
+  return [project, todo.module].filter(Boolean).join(' · ')
+}
 
 function heatClass(completed: number): string {
   if (completed <= 0) return ''
@@ -296,15 +341,21 @@ function openStaleTodos(): void {
             <div v-if="!cell" class="h-7 rounded-md"></div>
             <div
               v-else
-              class="ws-calendar-day flex h-7 flex-col items-center justify-start rounded-md px-1 pt-1 text-[9px] leading-none tabular-nums text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#98989d] dark:hover:bg-white/[0.07]"
+              class="ws-calendar-day flex h-7 cursor-pointer flex-col items-center justify-start rounded-md px-1 pt-1 text-[9px] leading-none tabular-nums text-[#6e6e73] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#98989d] dark:hover:bg-white/[0.07]"
               :class="[
                 heatClass(cell.completed),
                 cell.isToday
                   ? 'ring-1 ring-[#007AFF]/45 dark:ring-[#64B5FF]/45'
                   : (hoverKey === cell.key ? 'ring-1 ring-black/[0.12] dark:ring-white/[0.18]' : '')
               ]"
+              role="button"
+              tabindex="0"
+              :aria-label="`查看 ${cell.key} 的记录`"
               @mouseenter="showTip(cell.key, $event)"
               @mouseleave="clearTip"
+              @click="detailKey = cell.key"
+              @keydown.enter.prevent="detailKey = cell.key"
+              @keydown.space.prevent="detailKey = cell.key"
               :data-date="cell.key"
               :data-created="cell.created"
               :data-completed="cell.completed"
@@ -327,7 +378,7 @@ function openStaleTodos(): void {
           <div
             v-for="cell in weekDays"
             :key="cell.key"
-            class="ws-calendar-day flex h-32 flex-col items-center justify-start rounded-lg px-1 pt-3 text-center leading-none tabular-nums transition-colors duration-150 hover:bg-black/[0.04] dark:hover:bg-white/[0.07]"
+            class="ws-calendar-day flex h-32 cursor-pointer flex-col items-center justify-start rounded-lg px-1 pt-3 text-center leading-none tabular-nums transition-colors duration-150 hover:bg-black/[0.04] dark:hover:bg-white/[0.07]"
             :class="[
               heatClass(cell.completed),
               cell.isToday
@@ -338,8 +389,14 @@ function openStaleTodos(): void {
             :data-created="cell.created"
             :data-completed="cell.completed"
             :data-dismissed="cell.dismissed"
+            role="button"
+            tabindex="0"
+            :aria-label="`查看 ${cell.key} 的记录`"
             @mouseenter="showTip(cell.key, $event)"
             @mouseleave="clearTip"
+            @click="detailKey = cell.key"
+            @keydown.enter.prevent="detailKey = cell.key"
+            @keydown.space.prevent="detailKey = cell.key"
           >
             <span
               class="text-[20px] font-semibold"
@@ -542,6 +599,40 @@ function openStaleTodos(): void {
         </div>
       </div>
     </div>
+
+    <Modal
+      v-if="detailDay"
+      :title="detailLabel"
+      class="ws-day-detail"
+      @close="detailKey = null"
+    >
+      <p
+        v-if="detailEmpty"
+        class="ws-day-detail-empty text-[13px] text-[#6e6e73] dark:text-[#98989d]"
+      >这天没有记录</p>
+      <div v-else class="space-y-4">
+        <section v-for="group in detailGroups" :key="group.key">
+          <h3 class="flex items-center gap-2 text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">
+            <i class="h-1.5 w-1.5 rounded-full" :class="group.dot" aria-hidden="true"></i>
+            {{ group.label }}
+            <span class="tabular-nums">{{ group.items.length }}</span>
+          </h3>
+          <ul v-if="group.items.length" class="mt-1.5 space-y-1">
+            <li
+              v-for="todo in group.items"
+              :key="todo.name"
+              class="ws-day-detail-item rounded-lg bg-black/[0.03] px-3 py-1.5 dark:bg-white/[0.05]"
+            >
+              <p class="text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]">{{ todo.title }}</p>
+              <p
+                v-if="detailMeta(todo)"
+                class="mt-0.5 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
+              >{{ detailMeta(todo) }}</p>
+            </li>
+          </ul>
+        </section>
+      </div>
+    </Modal>
 
   </div>
 </template>
