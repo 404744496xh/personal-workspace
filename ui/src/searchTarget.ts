@@ -37,6 +37,8 @@ export interface TodosTarget {
   status?: 'ALL' | 'OPEN' | 'DISMISSED'
   stale?: boolean
   todo?: string
+  create?: boolean
+  createdAt?: string
 }
 
 let pendingTodos: TodosTarget | null = null

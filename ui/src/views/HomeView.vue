@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ApiError, listProjects, listTodos, updateTodo } from '../api'
 import { readCache, writeCache } from '../cache'
 import type { Project, Todo } from '../types'
-import type { TodosTarget } from '../searchTarget'
+import type { NotesTarget, TodosTarget } from '../searchTarget'
 import { formatDate, messageOf } from '../utils'
 import { useToast } from '../lib/toast'
 import TodoOverview from '../components/TodoOverview.vue'
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   unauthorized: []
   openTodos: [target: TodosTarget]
   openProjects: [title?: string]
+  openNotes: [target: NotesTarget]
 }>()
 
 const items = ref<Todo[]>(cached?.items ?? [])
@@ -133,6 +134,7 @@ onMounted(load)
       :projects="projects"
       @open-todos="(target) => emit('openTodos', target)"
       @open-projects="(title) => emit('openProjects', title)"
+      @open-notes="(target) => emit('openNotes', target)"
     />
 
     <section

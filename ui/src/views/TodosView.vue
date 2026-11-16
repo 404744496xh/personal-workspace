@@ -99,6 +99,7 @@ const activeModule = ref<string | null>(todosTarget?.module ?? null)
 
 const formOpen = ref(false)
 const editing = ref<Todo | null>(null)
+const presetCreatedAt = ref('')
 const saving = ref(false)
 const pendingDelete = ref<Todo | null>(null)
 const busy = ref<string | null>(null)
@@ -163,6 +164,7 @@ const showFinished = ref(
     : false)
 let jumpApplied = showFinished.value || !todosTarget?.project
 let todoJumpApplied = false
+let createApplied = false
 const filterOpen = ref(false)
 const filterMenuRef = ref<HTMLElement | null>(null)
 const timeOpen = ref(Boolean(todosTarget?.stale))
@@ -734,6 +736,10 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
       const targetTodo = todoList.items.find((todo) => todo.name === targetName)
       if (targetTodo) openEdit(targetTodo)
     }
+    if (!createApplied && todosTarget?.create) {
+      createApplied = true
+      openCreate(todosTarget.createdAt ?? '')
+    }
     if (selected.value.size) {
       const alive = new Set(todoList.items.map((todo) => todo.name))
       selected.value = new Set([...selected.value].filter((name) => alive.has(name)))
@@ -755,11 +761,13 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   }
 }
 
-function openCreate(): void {
+function openCreate(createdAt = ''): void {
   editing.value = null
+  presetCreatedAt.value = createdAt
   formOpen.value = true
 }
 function openEdit(todo: Todo): void {
+  presetCreatedAt.value = ''
   editing.value = todo
   formOpen.value = true
 }
@@ -768,6 +776,7 @@ function closeForm(): void {
   if (saving.value) return
   formOpen.value = false
   editing.value = null
+  presetCreatedAt.value = ''
 }
 
 function matchedInList(created: Todo): boolean {
@@ -1823,7 +1832,7 @@ onUnmounted(() => {
             <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </Button>
-        <Button variant="primary" @click="openCreate">
+        <Button variant="primary" @click="openCreate()">
           <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
           </svg>
@@ -2112,7 +2121,7 @@ onUnmounted(() => {
           v-else
           class="mt-2"
           variant="primary"
-          @click="openCreate"
+          @click="openCreate()"
         >新建待办</Button>
       </section>
 
@@ -2568,6 +2577,7 @@ onUnmounted(() => {
       :saving="saving"
       :default-project="activeProject ?? ''"
       :default-module="activeModule ?? ''"
+      :preset-created-at="presetCreatedAt"
       @submit="save"
       @close="closeForm"
     />

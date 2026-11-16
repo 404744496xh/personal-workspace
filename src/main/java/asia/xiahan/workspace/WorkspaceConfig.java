@@ -31,6 +31,8 @@ public class WorkspaceConfig {
 
     private static final String SETTINGS_CONFIG_MAP = "personal-workspace-config";
     private static final String DEFAULT_COLLAPSE_SHORTCUT = "z+d+v";
+    private static final String DEFAULT_QUICK_TODO_SHORTCUT = "n+t";
+    private static final String DEFAULT_SEARCH_SHORTCUT = "s+s";
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
     @Bean
@@ -97,11 +99,16 @@ public class WorkspaceConfig {
         TemplateNameResolver templateNameResolver, CurrentUser currentUser,
         ReactiveExtensionClient client, ObjectProvider<PluginContext> pluginContextProvider) {
         return currentUser.findUsername()
-            .flatMap(username -> collapseShortcut(client).flatMap(shortcut -> {
+            .flatMap(username -> workspaceShortcuts(client).flatMap(shortcuts -> {
                 var model = new HashMap<String, Object>();
                 model.put(ModelConst.TEMPLATE_ID, "plugin:personal-workspace:workspace");
                 model.put("username", username);
-                model.put("collapseShortcut", shortcut);
+                model.put("collapseShortcut", shortcuts.getOrDefault(
+                    "collapse", DEFAULT_COLLAPSE_SHORTCUT));
+                model.put("quickTodoShortcut", shortcuts.getOrDefault(
+                    "quickTodo", DEFAULT_QUICK_TODO_SHORTCUT));
+                model.put("searchShortcut", shortcuts.getOrDefault(
+                    "search", DEFAULT_SEARCH_SHORTCUT));
                 var pluginContext = pluginContextProvider.getIfAvailable();
                 model.put("pluginVersion", pluginContext == null ? "" : pluginContext.getVersion());
                 return csrfToken(request).doOnNext(token -> model.put("csrfToken", token))
@@ -125,24 +132,35 @@ public class WorkspaceConfig {
             .onErrorResume(error -> Mono.just(""));
     }
 
-    // 插件设置存放在 {plugin}-config 的 basic 组 JSON 里，读取失败时回落到默认快捷键
-    private static Mono<String> collapseShortcut(ReactiveExtensionClient client) {
+    // 插件设置存放在 {plugin}-config 的 basic 组 JSON 里，读取失败时各项回落到默认快捷键
+    private static Mono<Map<String, String>> workspaceShortcuts(ReactiveExtensionClient client) {
         return client.fetch(ConfigMap.class, SETTINGS_CONFIG_MAP)
             .mapNotNull(configMap -> configMap.getData() == null
                 ? null : configMap.getData().get("basic"))
-            .map(WorkspaceConfig::readCollapseShortcut)
-            .filter(value -> !value.isBlank())
-            .defaultIfEmpty(DEFAULT_COLLAPSE_SHORTCUT)
-            .onErrorResume(error -> Mono.just(DEFAULT_COLLAPSE_SHORTCUT));
+            .map(WorkspaceConfig::readShortcuts)
+            .defaultIfEmpty(Map.of())
+            .onErrorResume(error -> Mono.just(Map.of()));
     }
 
-    private static String readCollapseShortcut(String json) {
+    private static Map<String, String> readShortcuts(String json) {
+        var shortcuts = new HashMap<String, String>();
         try {
             var node = JSON_MAPPER.readTree(json);
-            var field = node == null ? null : node.get("collapseShortcut");
-            return field == null || field.isNull() ? "" : field.asText().trim();
+            var collapse = node == null ? null : node.get("collapseShortcut");
+            if (collapse != null && !collapse.isNull() && !collapse.asString().isBlank()) {
+                shortcuts.put("collapse", collapse.asString().trim());
+            }
+            var quickTodo = node == null ? null : node.get("quickTodoShortcut");
+            if (quickTodo != null && !quickTodo.isNull() && !quickTodo.asString().isBlank()) {
+                shortcuts.put("quickTodo", quickTodo.asString().trim());
+            }
+            var search = node == null ? null : node.get("searchShortcut");
+            if (search != null && !search.isNull() && !search.asString().isBlank()) {
+                shortcuts.put("search", search.asString().trim());
+            }
         } catch (Exception error) {
-            return "";
+            return shortcuts;
         }
+        return shortcuts;
     }
 }

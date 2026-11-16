@@ -86,9 +86,19 @@ function onDocumentMouseDown(event: MouseEvent): void {
   }
 }
 
-onMounted(() => document.addEventListener('mousedown', onDocumentMouseDown))
+function focusInput(): void {
+  const input = root.value?.querySelector('input')
+  input?.focus()
+  input?.select()
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', onDocumentMouseDown)
+  window.addEventListener('workspace:focus-search', focusInput)
+})
 onUnmounted(() => {
   document.removeEventListener('mousedown', onDocumentMouseDown)
+  window.removeEventListener('workspace:focus-search', focusInput)
   if (timer) window.clearTimeout(timer)
 })
 </script>

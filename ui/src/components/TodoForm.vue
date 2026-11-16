@@ -14,6 +14,7 @@ const props = defineProps<{
   saving: boolean
   defaultProject?: string
   defaultModule?: string
+  presetCreatedAt?: string
 }>()
 
 const emit = defineEmits<{
@@ -28,7 +29,7 @@ const project = ref(props.todo?.project ?? props.defaultProject ?? '')
 const module = ref(props.todo?.module ?? props.defaultModule ?? '')
 const dueDate = ref(props.todo?.dueDate ?? '')
 const reporter = ref(props.todo?.reporter ?? '')
-const createdAt = ref(toDateTimeLocal(props.todo?.createdAt)
+const createdAt = ref(toDateTimeLocal(props.todo?.createdAt ?? props.presetCreatedAt)
   || toDateTimeLocal(new Date().toISOString()))
 const completed = ref(props.todo?.completed ?? false)
 const localError = ref('')

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import HomeView from './views/HomeView.vue'
 import TodosView from './views/TodosView.vue'
 import ProjectsView from './views/ProjectsView.vue'
@@ -69,7 +69,7 @@ interface ShortcutConfig {
   keys: string[]
 }
 
-function parseShortcut(raw: string): ShortcutConfig {
+function parseShortcut(raw: string, fallback: string): ShortcutConfig {
   const tokens = raw.toLowerCase().split('+').map((token) => token.trim()).filter(Boolean)
   const config: ShortcutConfig = { ctrl: false, shift: false, alt: false, meta: false, keys: [] }
   for (const token of tokens) {
@@ -79,14 +79,18 @@ function parseShortcut(raw: string): ShortcutConfig {
     else if (token === 'meta' || token === 'cmd' || token === 'command') config.meta = true
     else config.keys.push(token)
   }
-  if (!config.keys.length) config.keys = ['z', 'd', 'v']
+  if (!config.keys.length) {
+    config.keys = fallback.toLowerCase().split('+').map((token) => token.trim()).filter(Boolean)
+  }
   return config
 }
 
-const shortcut = parseShortcut(rootElement?.dataset.collapseShortcut ?? 'z+d+v')
-const hasModifiers = shortcut.ctrl || shortcut.shift || shortcut.alt || shortcut.meta
-let shortcutProgress = 0
-let shortcutTimer: ReturnType<typeof setTimeout> | undefined
+interface ShortcutBinding {
+  config: ShortcutConfig
+  action: () => void
+  progress: number
+  timer?: ReturnType<typeof setTimeout>
+}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null
@@ -95,9 +99,17 @@ function isEditableTarget(target: EventTarget | null): boolean {
     || element.tagName === 'SELECT' || element.isContentEditable
 }
 
+function hasModifiers(config: ShortcutConfig): boolean {
+  return config.ctrl || config.shift || config.alt || config.meta
+}
+
+function resetBinding(binding: ShortcutBinding): void {
+  binding.progress = 0
+  if (binding.timer) window.clearTimeout(binding.timer)
+}
+
 function resetShortcut(): void {
-  shortcutProgress = 0
-  if (shortcutTimer) window.clearTimeout(shortcutTimer)
+  for (const binding of shortcutBindings) resetBinding(binding)
 }
 
 function toggleCollapseAll(): void {
@@ -107,6 +119,32 @@ function toggleCollapseAll(): void {
   toolsCollapsed.value = collapsed
 }
 
+function openQuickTodo(): void {
+  setTodosTarget({ create: true })
+  tab.value = 'todos'
+  viewKey.value += 1
+}
+
+function focusGlobalSearch(): void {
+  if (sidebarHidden.value) {
+    sidebarHidden.value = false
+    localStorage.setItem(SIDEBAR_KEY, '0')
+    void nextTick(() => window.dispatchEvent(new CustomEvent('workspace:focus-search')))
+    return
+  }
+  window.dispatchEvent(new CustomEvent('workspace:focus-search'))
+}
+
+function createBinding(config: ShortcutConfig, action: () => void): ShortcutBinding {
+  return { config, action, progress: 0 }
+}
+
+const shortcutBindings: ShortcutBinding[] = [
+  createBinding(parseShortcut(rootElement?.dataset.collapseShortcut ?? '', 'z+d+v'), toggleCollapseAll),
+  createBinding(parseShortcut(rootElement?.dataset.quickTodoShortcut ?? '', 'n+t'), openQuickTodo),
+  createBinding(parseShortcut(rootElement?.dataset.searchShortcut ?? '', 's+s'), focusGlobalSearch)
+]
+
 function onShortcutKeydown(event: KeyboardEvent): void {
   if (event.repeat) return
   if (isEditableTarget(event.target)) {
@@ -114,33 +152,37 @@ function onShortcutKeydown(event: KeyboardEvent): void {
     return
   }
   const key = event.key.toLowerCase()
-  if (hasModifiers) {
-    if (shortcut.keys.length !== 1) return
-    if (event.ctrlKey !== shortcut.ctrl || event.shiftKey !== shortcut.shift
-      || event.altKey !== shortcut.alt || event.metaKey !== shortcut.meta) {
-      return
+  for (const binding of shortcutBindings) {
+    const config = binding.config
+    if (hasModifiers(config)) {
+      if (config.keys.length !== 1) continue
+      if (event.ctrlKey !== config.ctrl || event.shiftKey !== config.shift
+        || event.altKey !== config.alt || event.metaKey !== config.meta) {
+        continue
+      }
+      if (key === config.keys[0]) {
+        event.preventDefault()
+        resetBinding(binding)
+        binding.action()
+      }
+      continue
     }
-    if (key === shortcut.keys[0]) {
-      event.preventDefault()
-      toggleCollapseAll()
+    if (event.ctrlKey || event.metaKey || event.altKey) continue
+    if (key === config.keys[binding.progress]) {
+      binding.progress += 1
+      if (binding.progress === config.keys.length) {
+        resetBinding(binding)
+        event.preventDefault()
+        binding.action()
+        return
+      }
+    } else {
+      binding.progress = key === config.keys[0] ? 1 : 0
     }
-    return
-  }
-  if (event.ctrlKey || event.metaKey || event.altKey) return
-  if (key === shortcut.keys[shortcutProgress]) {
-    shortcutProgress += 1
-    if (shortcutProgress === shortcut.keys.length) {
-      resetShortcut()
-      event.preventDefault()
-      toggleCollapseAll()
-      return
+    if (binding.timer) window.clearTimeout(binding.timer)
+    if (binding.progress > 0) {
+      binding.timer = window.setTimeout(() => resetBinding(binding), 1500)
     }
-  } else {
-    shortcutProgress = key === shortcut.keys[0] ? 1 : 0
-  }
-  if (shortcutTimer) window.clearTimeout(shortcutTimer)
-  if (shortcutProgress > 0) {
-    shortcutTimer = window.setTimeout(resetShortcut, 1500)
   }
 }
 
@@ -397,6 +439,7 @@ function toggleSidebar(): void {
           @unauthorized="onUnauthorized"
           @open-todos="onOpenTodos"
           @open-projects="onHomeOpenProjects"
+          @open-notes="onOpenNotes"
         />
         <TodosView
           v-else-if="tab === 'todos'"

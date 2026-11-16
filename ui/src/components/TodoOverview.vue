@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Project, Todo } from '../types'
-import type { TodosTarget } from '../searchTarget'
-import { formatDate, todayString } from '../utils'
+import type { NotesTarget, TodosTarget } from '../searchTarget'
+import { formatDate, formatDateTime, messageOf, todayString } from '../utils'
+import { createNote } from '../api'
+import { useToast } from '../lib/toast'
 import Button from './ui/Button.vue'
 import Modal from './ui/Modal.vue'
+import Toast from './Toast.vue'
 
 const props = defineProps<{ todos: Todo[]; projects: Project[] }>()
 const emit = defineEmits<{
   openTodos: [target: TodosTarget]
   openProjects: [title?: string]
+  openNotes: [target: NotesTarget]
 }>()
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
@@ -268,6 +272,112 @@ const detailGroups = computed(() => {
 const detailEmpty = computed(() =>
   detailGroups.value.every((group) => group.items.length === 0))
 
+const { toast, show } = useToast()
+const reporting = ref(false)
+
+function backfillTodo(): void {
+  const day = detailDay.value
+  if (!day) return
+  const [year, month, date] = day.key.split('-').map(Number)
+  const at = new Date(year, month - 1, date, 9, 0)
+  emit('openTodos', { create: true, createdAt: at.toISOString() })
+}
+
+function projectName(todo: Todo): string {
+  return props.projects.find((project) => project.name === todo.project)?.title ?? '未归类'
+}
+
+function reportLine(todo: Todo): string {
+  const meta = [projectName(todo), todo.module].filter(Boolean).join(' · ')
+  return meta ? `- [${meta}] ${todo.title}` : `- ${todo.title}`
+}
+
+function buildReport(): { title: string; content: string } {
+  const range = view.value === 'month'
+    ? {
+        start: new Date(cursor.value.getFullYear(), cursor.value.getMonth(), 1),
+        end: new Date(cursor.value.getFullYear(), cursor.value.getMonth() + 1, 0)
+      }
+    : { start: weekCursor.value, end: shiftDays(weekCursor.value, 6) }
+  const startKey = keyOf(range.start)
+  const endKey = keyOf(range.end)
+  const inRange = (value: string | undefined | null): boolean =>
+    Boolean(value && value >= startKey && value <= endKey)
+
+  const created = props.todos.filter((todo) =>
+    inRange(todo.createdAt ? formatDate(todo.createdAt) : null))
+  const completed = props.todos.filter((todo) =>
+    inRange(todo.completedAt ? formatDate(todo.completedAt) : null))
+  const dismissed = props.todos.filter((todo) => {
+    if (!todo.dismissed) return false
+    const at = todo.dismissedAt || todo.createdAt
+    return inRange(at ? formatDate(at) : null)
+  })
+
+  const groups = new Map<string, { created: number; completed: number; dismissed: number }>()
+  const bump = (todo: Todo, field: 'created' | 'completed' | 'dismissed'): void => {
+    const title = projectName(todo)
+    const entry = groups.get(title) ?? { created: 0, completed: 0, dismissed: 0 }
+    entry[field] += 1
+    groups.set(title, entry)
+  }
+  created.forEach((todo) => bump(todo, 'created'))
+  completed.forEach((todo) => bump(todo, 'completed'))
+  dismissed.forEach((todo) => bump(todo, 'dismissed'))
+
+  const title = view.value === 'month'
+    ? `${range.start.getFullYear()} 年 ${range.start.getMonth() + 1} 月工作月报`
+    : `${startKey} ~ ${endKey} 工作周报`
+  const lines = [
+    `# ${title}`,
+    '',
+    `统计范围：${startKey} ~ ${endKey}`,
+    `生成时间：${formatDateTime(new Date().toISOString())}`,
+    '',
+    '## 概览',
+    '',
+    `- 新增：${created.length}`,
+    `- 完成：${completed.length}`,
+    `- 不用处理：${dismissed.length}`,
+    '',
+    '## 项目分布',
+    '',
+    '| 项目 | 新增 | 完成 | 不用处理 |',
+    '| --- | --- | --- | --- |',
+    ...[...groups.entries()]
+      .sort((a, b) => (b[1].created + b[1].completed) - (a[1].created + a[1].completed))
+      .map(([title, entry]) =>
+        `| ${title} | ${entry.created} | ${entry.completed} | ${entry.dismissed} |`),
+    '',
+    '## 新增',
+    '',
+    ...(created.length ? created.map(reportLine) : ['- 无']),
+    '',
+    '## 完成',
+    '',
+    ...(completed.length ? completed.map(reportLine) : ['- 无']),
+    '',
+    '## 不用处理',
+    '',
+    ...(dismissed.length ? dismissed.map(reportLine) : ['- 无'])
+  ]
+  return { title, content: lines.join('\n') }
+}
+
+async function saveReport(): Promise<void> {
+  if (reporting.value) return
+  reporting.value = true
+  try {
+    const report = buildReport()
+    const note = await createNote({ title: report.title, content: report.content })
+    emit('openNotes', { noteName: note.name })
+  } catch (error) {
+    show(messageOf(error))
+  } finally {
+    reporting.value = false
+  }
+}
+
 function detailMeta(todo: Todo): string {
   const project = props.projects.find((item) => item.name === todo.project)?.title
   return [project, todo.module].filter(Boolean).join(' · ')
@@ -333,6 +443,15 @@ function openTodoDetail(todo: Todo): void {
                 <path d="M6.5 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="ws-report-save px-2"
+              :disabled="reporting"
+              :title="`将${view === 'month' ? '本月' : '本周'}统计保存为笔记`"
+              :aria-label="`生成${view === 'month' ? '月报' : '周报'}`"
+              @click="saveReport"
+            >{{ reporting ? '生成中…' : (view === 'month' ? '月报' : '周报') }}</Button>
           </div>
         </header>
 
@@ -640,7 +759,14 @@ function openTodoDetail(todo: Todo): void {
           </ul>
         </section>
       </div>
+      <div class="mt-4 flex justify-end">
+        <Button variant="ghost" size="sm" class="ws-day-backfill" @click="backfillTodo">
+          在这天补记待办
+        </Button>
+      </div>
     </Modal>
+
+    <Toast :message="toast" />
 
   </div>
 </template>
