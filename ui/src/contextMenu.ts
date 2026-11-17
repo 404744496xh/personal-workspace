@@ -5,7 +5,7 @@ export type ContextMenuIcon =
   | 'move' | 'trash' | 'plus' | 'rename' | 'expand' | 'collapse' | 'filter'
   | 'folder' | 'module' | 'open' | 'calendar' | 'checklist' | 'home' | 'refresh'
   | 'top' | 'search' | 'link' | 'sun' | 'moon' | 'text' | 'close' | 'paste'
-  | 'archive' | 'clock'
+  | 'archive' | 'clock' | 'redo' | 'cut' | 'select'
 
 export interface ContextMenuItem {
   label: string

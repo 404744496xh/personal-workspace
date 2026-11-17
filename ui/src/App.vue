@@ -215,11 +215,102 @@ const themeAction = computed(() => scheme.value === 'dark' ? '切换到浅色模
 const { menu: globalMenu, open: openGlobalMenu } = useContextMenu()
 const { toast: globalToast, show: showGlobalToast } = useToast()
 
-function insideEditableContext(target: EventTarget | null): boolean {
+type EditableElement = HTMLInputElement | HTMLTextAreaElement | HTMLElement
+
+interface EditableSnapshot {
+  element: EditableElement
+  start: number | null
+  end: number | null
+  range: Range | null
+}
+
+let editableSnapshot: EditableSnapshot | null = null
+
+function editableHost(target: EventTarget | null): EditableElement | null {
   const element = target instanceof Element ? target : null
-  if (!element) return false
-  return Boolean(element.closest(
-    'input, textarea, select, [contenteditable=""], [contenteditable="true"], .vditor'))
+  if (!element) return null
+  const field = element.closest('input, textarea')
+  if (field instanceof HTMLInputElement) {
+    if (['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'range'].includes(field.type)) return null
+    return field.readOnly || field.disabled ? null : field
+  }
+  if (field instanceof HTMLTextAreaElement) {
+    return field.readOnly || field.disabled ? null : field
+  }
+  const editable = element.closest(
+    '[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]')
+  return editable instanceof HTMLElement ? editable : null
+}
+
+function captureEditable(host: EditableElement): EditableSnapshot {
+  if (host instanceof HTMLInputElement || host instanceof HTMLTextAreaElement) {
+    return { element: host, start: host.selectionStart, end: host.selectionEnd, range: null }
+  }
+  const selection = window.getSelection()
+  const range = selection && selection.rangeCount > 0
+    ? selection.getRangeAt(0).cloneRange()
+    : null
+  return { element: host, start: null, end: null, range }
+}
+
+function hasEditableSelection(snapshot: EditableSnapshot): boolean {
+  if (snapshot.element instanceof HTMLInputElement || snapshot.element instanceof HTMLTextAreaElement) {
+    return snapshot.start != null && snapshot.end != null && snapshot.start !== snapshot.end
+  }
+  return Boolean(snapshot.range && !snapshot.range.collapsed)
+}
+
+function restoreEditable(snapshot: EditableSnapshot): void {
+  snapshot.element.focus({ preventScroll: true })
+  if (snapshot.element instanceof HTMLInputElement || snapshot.element instanceof HTMLTextAreaElement) {
+    if (snapshot.start != null && snapshot.end != null) {
+      snapshot.element.setSelectionRange(snapshot.start, snapshot.end)
+    }
+    return
+  }
+  if (snapshot.range) {
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(snapshot.range)
+  }
+}
+
+function runEditCommand(command: 'undo' | 'redo' | 'cut' | 'copy' | 'selectAll'): void {
+  const snapshot = editableSnapshot
+  if (!snapshot) return
+  restoreEditable(snapshot)
+  document.execCommand(command)
+}
+
+async function pasteEditable(): Promise<void> {
+  const snapshot = editableSnapshot
+  if (!snapshot) return
+  if (!navigator.clipboard?.readText) {
+    showGlobalToast('当前浏览器不支持读取剪贴板，请按 Ctrl+V 粘贴')
+    return
+  }
+  try {
+    const text = await navigator.clipboard.readText()
+    restoreEditable(snapshot)
+    if (!document.execCommand('insertText', false, text)) {
+      showGlobalToast('粘贴失败，请按 Ctrl+V 粘贴')
+    }
+  } catch {
+    showGlobalToast('无法读取剪贴板，请按 Ctrl+V 粘贴')
+  }
+}
+
+function editableMenuItems(snapshot: EditableSnapshot): ContextMenuItem[] {
+  const selected = hasEditableSelection(snapshot)
+  return [
+    { label: '撤销', icon: 'restore', onSelect: () => runEditCommand('undo') },
+    { label: '重做', icon: 'redo', onSelect: () => runEditCommand('redo') },
+    { divider: true, label: '' },
+    { label: '剪切', icon: 'cut', disabled: !selected, onSelect: () => runEditCommand('cut') },
+    { label: '复制', icon: 'copy', disabled: !selected, onSelect: () => runEditCommand('copy') },
+    { label: '粘贴', icon: 'paste', onSelect: () => void pasteEditable() },
+    { label: '全选', icon: 'select', onSelect: () => runEditCommand('selectAll') }
+  ]
 }
 
 function copyWithFeedback(text: string, success: string): void {
@@ -229,7 +320,13 @@ function copyWithFeedback(text: string, success: string): void {
 function onGlobalContextMenu(event: MouseEvent): void {
   if (event.defaultPrevented) return
   if (!rootElement || !(event.target instanceof Node) || !rootElement.contains(event.target)) return
-  if (insideEditableContext(event.target)) return
+  editableSnapshot = null
+  const host = editableHost(event.target)
+  if (host) {
+    editableSnapshot = captureEditable(host)
+    openGlobalMenu(event, editableMenuItems(editableSnapshot))
+    return
+  }
   const items: ContextMenuItem[] = []
   if (tab.value !== 'home') {
     items.push({ label: '回到首屏', icon: 'home', onSelect: () => { tab.value = 'home' } })

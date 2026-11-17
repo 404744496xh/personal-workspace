@@ -47,7 +47,10 @@ const ICONS: Record<ContextMenuIcon, string[]> = {
   close: ['M4 4l8 8M12 4l-8 8'],
   paste: ['M5.5 3.5h5V5h-5z', 'M4 5.5H2.5v8h11v-8H12', 'M6 8h4M6 10.5h4'],
   archive: ['M2.5 3.5h11v2.5h-11z', 'M4 6v7.5h8V6', 'M6.5 8.5h3'],
-  clock: ['M8 2.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z', 'M8 5v3.2l2.2 1.3']
+  clock: ['M8 2.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11z', 'M8 5v3.2l2.2 1.3'],
+  redo: ['M12.5 6.5A4.5 4.5 0 113.5 9', 'M12.5 3.5v3h-3'],
+  cut: ['M5.5 3.5l5 9', 'M10.5 3.5l-5 9', 'M4 13a1.6 1.6 0 100-3.2A1.6 1.6 0 004 13z', 'M12 13a1.6 1.6 0 100-3.2A1.6 1.6 0 0012 13z'],
+  select: ['M3 3.5h2M7 3.5h2M11 3.5h2M3 7.5v2M13 7.5v2M3 11.5h2M7 12.5h2M11 12.5h2', 'M3 3.5v2M13 3.5v2M13 11.5v2M3 11.5v2']
 }
 
 const root = ref<HTMLElement | null>(null)
