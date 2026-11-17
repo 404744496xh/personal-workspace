@@ -1700,7 +1700,7 @@ onUnmounted(() => {
           placeholder="搜索标题或详情"
           aria-label="搜索待办"
         />
-        <div ref="viewMenuRef" class="absolute right-1 top-1/2 z-10 -translate-y-1/2">
+        <div ref="viewMenuRef" class="absolute right-1 top-1/2 z-40 -translate-y-1/2">
           <Button
             variant="ghost"
             size="icon"
