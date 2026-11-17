@@ -50,20 +50,24 @@ function openHomeTodoMenu(event: MouseEvent, todo: Todo): void {
   openContextMenu(event, [
     {
       label: '标记完成',
+      icon: 'check',
       disabled: busy.value !== null,
       onSelect: () => void toggleTodo(todo)
     },
     {
       label: '在待办中打开',
+      icon: 'checklist',
       onSelect: () => openTodoContext(todo)
     },
     {
       label: '查看关联笔记',
+      icon: 'note',
       onSelect: () => emit('openNotes', { todo: todo.name })
     },
     { divider: true, label: '' },
     {
       label: '复制标题',
+      icon: 'title',
       onSelect: () => {
         void copyText(todo.title).then((ok) => show(ok ? '已复制标题' : '复制失败'))
       }
@@ -75,15 +79,18 @@ function openHomeProjectMenu(event: MouseEvent, project: Project): void {
   openContextMenu(event, [
     {
       label: '打开项目',
+      icon: 'folder',
       onSelect: () => emit('openProjects', project.title)
     },
     {
       label: '查看该项目待办',
+      icon: 'checklist',
       onSelect: () => emit('openTodos', { project: project.name })
     },
     { divider: true, label: '' },
     {
       label: '复制项目名',
+      icon: 'copy',
       onSelect: () => {
         void copyText(project.title).then((ok) => show(ok ? '已复制项目名' : '复制失败'))
       }

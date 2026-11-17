@@ -1,7 +1,15 @@
 import { reactive } from 'vue'
 
+export type ContextMenuIcon =
+  | 'edit' | 'check' | 'restore' | 'dismiss' | 'note' | 'copy' | 'title'
+  | 'move' | 'trash' | 'plus' | 'rename' | 'expand' | 'collapse' | 'filter'
+  | 'folder' | 'module' | 'open' | 'calendar' | 'checklist' | 'home' | 'refresh'
+  | 'top' | 'search' | 'link' | 'sun' | 'moon' | 'text' | 'close' | 'paste'
+  | 'archive' | 'clock'
+
 export interface ContextMenuItem {
   label: string
+  icon?: ContextMenuIcon
   onSelect?: () => void
   disabled?: boolean
   danger?: boolean

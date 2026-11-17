@@ -1163,38 +1163,43 @@ function openTodoMenu(event: MouseEvent, todo: Todo): void {
   if (selecting.value) {
     items.push({
       label: '选择此项',
+      icon: 'check',
       onSelect: () => toggleSelect(todo.name)
     })
   }
   items.push(
-    { label: '编辑', disabled, onSelect: () => openEdit(todo) },
+    { label: '编辑', icon: 'edit', disabled, onSelect: () => openEdit(todo) },
     {
       label: todo.completed ? '取消完成' : '标记完成',
+      icon: todo.completed ? 'restore' : 'check',
       disabled,
       onSelect: () => void toggle(todo)
     },
     {
       label: todo.dismissed ? '恢复到待办' : '标记不用处理',
+      icon: todo.dismissed ? 'restore' : 'dismiss',
       disabled,
       onSelect: () => void setDismissed(todo, !todo.dismissed)
     },
     { divider: true, label: '' },
     {
       label: '新建关联笔记',
+      icon: 'plus',
       disabled: noteBusy.value !== null,
       onSelect: () => createNoteHere({ todo: todo.name })
     },
     {
       label: '查看关联笔记',
+      icon: 'note',
       disabled: noteBusy.value !== null,
       onSelect: () => void openRelatedNotes(`t:${todo.name}`, { todo: todo.name })
     },
     { divider: true, label: '' },
-    { label: '仅复制标题', onSelect: () => copyTodo(todo, true) },
-    { label: '复制完整信息', onSelect: () => copyTodo(todo, false) },
+    { label: '仅复制标题', icon: 'title', onSelect: () => copyTodo(todo, true) },
+    { label: '复制完整信息', icon: 'copy', onSelect: () => copyTodo(todo, false) },
     { divider: true, label: '' },
-    { label: '移动到项目/模块…', disabled, onSelect: () => startMoveTodo(todo) },
-    { label: '删除', danger: true, disabled, onSelect: () => askDelete(todo) }
+    { label: '移动到项目/模块…', icon: 'move', disabled, onSelect: () => startMoveTodo(todo) },
+    { label: '删除', icon: 'trash', danger: true, disabled, onSelect: () => askDelete(todo) }
   )
   openContextMenu(event, items)
 }
@@ -1203,10 +1208,11 @@ function openSelectedTodoMenu(event: MouseEvent): void {
   const targets = selectedTodos.value
   const disabled = bulkBusy.value || !targets.length
   openContextMenu(event, [
-    { label: '标记完成', disabled, onSelect: bulkComplete },
-    { label: '标记不用处理', disabled, onSelect: bulkDismiss },
+    { label: '标记完成', icon: 'check', disabled, onSelect: bulkComplete },
+    { label: '标记不用处理', icon: 'dismiss', disabled, onSelect: bulkDismiss },
     {
       label: '移动到项目/模块…',
+      icon: 'move',
       disabled,
       onSelect: () => {
         moveSingle.value = false
@@ -1215,6 +1221,7 @@ function openSelectedTodoMenu(event: MouseEvent): void {
     },
     {
       label: '删除所选',
+      icon: 'trash',
       danger: true,
       disabled,
       onSelect: () => {
@@ -1222,10 +1229,10 @@ function openSelectedTodoMenu(event: MouseEvent): void {
       }
     },
     { divider: true, label: '' },
-    { label: '复制完整信息', disabled, onSelect: () => void copySelected(false) },
-    { label: '仅复制标题', disabled, onSelect: () => void copySelected(true) },
+    { label: '复制完整信息', icon: 'copy', disabled, onSelect: () => void copySelected(false) },
+    { label: '仅复制标题', icon: 'title', disabled, onSelect: () => void copySelected(true) },
     { divider: true, label: '' },
-    { label: '清除选择', onSelect: clearSelected }
+    { label: '清除选择', icon: 'close', onSelect: clearSelected }
   ])
 }
 
@@ -1233,26 +1240,31 @@ function openProjectGroupMenu(event: MouseEvent, group: ProjectGroup): void {
   const items: ContextMenuItem[] = [
     {
       label: '全部完成',
+      icon: 'check',
       disabled: !groupOpenTodos(group).length || bulkBusy.value,
       onSelect: () => completeGroup(group)
     },
     {
       label: '查看关联笔记',
+      icon: 'note',
       disabled: noteBusy.value !== null,
       onSelect: () => void openRelatedNotes(`p:${group.key}`, { project: group.key })
     },
     {
       label: '新建笔记',
+      icon: 'plus',
       onSelect: () => createNoteHere({ project: group.key })
     },
     {
       label: isProjectCollapsed(group.key) ? '展开项目' : '收起项目',
+      icon: isProjectCollapsed(group.key) ? 'expand' : 'collapse',
       onSelect: () => toggleCollapseProject(group.key)
     }
   ]
   if (group.key) {
     items.push({
       label: '添加模块',
+      icon: 'plus',
       onSelect: () => startAddModule(group.key)
     })
   }
@@ -1260,10 +1272,12 @@ function openProjectGroupMenu(event: MouseEvent, group: ProjectGroup): void {
     { divider: true, label: '' },
     {
       label: activeProject.value === group.key ? '清除项目筛选' : '按此项目筛选',
+      icon: 'filter',
       onSelect: () => toggleProject(group.key)
     },
     {
       label: '复制项目名',
+      icon: 'copy',
       onSelect: () => {
         void copyText(group.title).then((ok) => {
           showToast(ok ? '已复制项目名' : '复制失败')
@@ -1278,11 +1292,13 @@ function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: Mod
   const items: ContextMenuItem[] = [
     {
       label: '全部完成',
+      icon: 'check',
       disabled: !groupOpenTodos(moduleGroup).length || bulkBusy.value,
       onSelect: () => completeGroup(moduleGroup)
     },
     {
       label: '查看关联笔记',
+      icon: 'note',
       disabled: noteBusy.value !== null,
       onSelect: () => void openRelatedNotes(
         `m:${group.key}:${moduleGroup.key}`,
@@ -1290,6 +1306,7 @@ function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: Mod
     },
     {
       label: '新建笔记',
+      icon: 'plus',
       onSelect: () => createNoteHere({
         project: group.key,
         module: moduleGroup.key
@@ -1297,12 +1314,14 @@ function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: Mod
     },
     {
       label: isModuleCollapsed(group.key, moduleGroup.key) ? '展开模块' : '收起模块',
+      icon: isModuleCollapsed(group.key, moduleGroup.key) ? 'expand' : 'collapse',
       onSelect: () => toggleCollapseModule(group.key, moduleGroup.key)
     }
   ]
   if (group.key && moduleGroup.key) {
     items.push({
       label: '重命名模块',
+      icon: 'rename',
       onSelect: () => startRenameModule(group.key, moduleGroup.key)
     })
   }
@@ -1312,10 +1331,12 @@ function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: Mod
       label: activeProject.value === group.key && activeModule.value === moduleGroup.key
         ? '清除模块筛选'
         : '按此模块筛选',
+      icon: 'filter',
       onSelect: () => toggleModule(group.key, moduleGroup.key)
     },
     {
       label: '复制模块名',
+      icon: 'copy',
       onSelect: () => {
         void copyText(moduleGroup.label).then((ok) => {
           showToast(ok ? '已复制模块名' : '复制失败')
@@ -1324,6 +1345,13 @@ function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: Mod
     }
   )
   openContextMenu(event, items)
+}
+
+function openEmptyMenu(event: MouseEvent): void {
+  openContextMenu(event, [
+    { label: '新建待办', icon: 'plus', onSelect: () => openCreate() },
+    { label: '粘贴导入待办', icon: 'paste', onSelect: () => { importOpen.value = true } }
+  ])
 }
 
 async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
@@ -2302,6 +2330,7 @@ onUnmounted(() => {
       <section
         v-if="viewMode === 'flat' ? !visibleItems.length : !groups.length"
         class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
+        @contextmenu.prevent.stop="openEmptyMenu($event)"
       >
         <p class="ws-state-title text-[15px] font-semibold">
           {{ hasFilters ? '没有匹配的待办'

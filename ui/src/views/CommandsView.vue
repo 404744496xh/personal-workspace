@@ -141,10 +141,11 @@ async function copy(command: QuickCmd): Promise<void> {
 
 function openCommandMenu(event: MouseEvent, command: QuickCmd): void {
   openContextMenu(event, [
-    { label: '编辑', onSelect: () => openEdit(command) },
-    { label: '复制命令', onSelect: () => void copy(command) },
+    { label: '编辑', icon: 'edit', onSelect: () => openEdit(command) },
+    { label: '复制命令', icon: 'copy', onSelect: () => void copy(command) },
     {
       label: '复制标题',
+      icon: 'title',
       onSelect: () => {
         void copyText(command.title).then((ok) => {
           show(ok ? '已复制标题' : '复制失败')
@@ -154,11 +155,18 @@ function openCommandMenu(event: MouseEvent, command: QuickCmd): void {
     { divider: true, label: '' },
     {
       label: '删除',
+      icon: 'trash',
       danger: true,
       onSelect: () => {
         pendingDelete.value = command
       }
     }
+  ])
+}
+
+function openEmptyMenu(event: MouseEvent): void {
+  openContextMenu(event, [
+    { label: '新建命令', icon: 'plus', onSelect: openCreate }
   ])
 }
 
@@ -238,6 +246,7 @@ onMounted(() => {
     <section
       v-else-if="!filteredCommands.length"
       class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
+      @contextmenu.prevent.stop="openEmptyMenu($event)"
     >
       <p class="ws-state-title text-[15px] font-semibold">
         {{ commands.length ? '没有匹配的命令' : '还没有命令' }}

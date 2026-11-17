@@ -7,6 +7,12 @@ import CommandsView from './views/CommandsView.vue'
 import NotesView from './views/NotesView.vue'
 import BackupView from './views/BackupView.vue'
 import GlobalSearch from './components/GlobalSearch.vue'
+import ContextMenu from './components/ContextMenu.vue'
+import Toast from './components/Toast.vue'
+import { useContextMenu } from './contextMenu'
+import type { ContextMenuItem } from './contextMenu'
+import { useToast } from './lib/toast'
+import { copyText } from './utils'
 import { setNotesTarget, setSearchTarget, setTodosTarget } from './searchTarget'
 import type { NotesTarget, TodosTarget } from './searchTarget'
 import { scheme, toggleScheme } from './theme'
@@ -188,12 +194,14 @@ function onShortcutKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   window.addEventListener('keydown', onShortcutKeydown, true)
+  window.addEventListener('contextmenu', onGlobalContextMenu)
   document.addEventListener('visibilitychange', keepSessionAlive)
   keepAliveTimer = window.setInterval(keepSessionAlive, KEEP_ALIVE_MS)
 })
 onBeforeUnmount(() => {
   resetShortcut()
   window.removeEventListener('keydown', onShortcutKeydown, true)
+  window.removeEventListener('contextmenu', onGlobalContextMenu)
   document.removeEventListener('visibilitychange', keepSessionAlive)
   if (keepAliveTimer) window.clearInterval(keepAliveTimer)
 })
@@ -203,6 +211,63 @@ const current = computed(() => {
   return navItems.find((item) => item.key === tab.value) ?? navItems[0]
 })
 const themeAction = computed(() => scheme.value === 'dark' ? '切换到浅色模式' : '切换到深色模式')
+
+const { menu: globalMenu, open: openGlobalMenu } = useContextMenu()
+const { toast: globalToast, show: showGlobalToast } = useToast()
+
+function insideEditableContext(target: EventTarget | null): boolean {
+  const element = target instanceof Element ? target : null
+  if (!element) return false
+  return Boolean(element.closest(
+    'input, textarea, select, [contenteditable=""], [contenteditable="true"], .vditor'))
+}
+
+function copyWithFeedback(text: string, success: string): void {
+  void copyText(text).then((ok) => showGlobalToast(ok ? success : '复制失败'))
+}
+
+function onGlobalContextMenu(event: MouseEvent): void {
+  if (event.defaultPrevented) return
+  if (!rootElement || !(event.target instanceof Node) || !rootElement.contains(event.target)) return
+  if (insideEditableContext(event.target)) return
+  const items: ContextMenuItem[] = []
+  if (tab.value !== 'home') {
+    items.push({ label: '回到首屏', icon: 'home', onSelect: () => { tab.value = 'home' } })
+  }
+  items.push({ label: '新建待办', icon: 'plus', onSelect: openQuickTodo })
+  items.push({ label: '全局搜索', icon: 'search', onSelect: focusGlobalSearch })
+  const selection = window.getSelection()?.toString().trim() ?? ''
+  const anchor = event.target instanceof Element ? event.target.closest('a') : null
+  if (selection || anchor) items.push({ divider: true, label: '' })
+  if (selection) {
+    items.push({
+      label: '复制选中文本',
+      icon: 'text',
+      onSelect: () => copyWithFeedback(selection, '已复制选中文本')
+    })
+  }
+  if (anchor instanceof HTMLAnchorElement && anchor.href) {
+    const href = anchor.href
+    items.push({ label: '在新窗口打开', icon: 'open', onSelect: () => window.open(href, '_blank', 'noopener') })
+    items.push({ label: '复制链接地址', icon: 'link', onSelect: () => copyWithFeedback(href, '已复制链接地址') })
+  }
+  items.push({ divider: true, label: '' })
+  items.push({ label: '刷新页面', icon: 'refresh', onSelect: () => window.location.reload() })
+  items.push({
+    label: '回到顶部',
+    icon: 'top',
+    disabled: window.scrollY <= 0,
+    onSelect: () => window.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+  items.push({ label: '复制页面链接', icon: 'link', onSelect: () => copyWithFeedback(window.location.href, '已复制页面链接') })
+  items.push({ divider: true, label: '' })
+  items.push({
+    label: themeAction.value,
+    icon: scheme.value === 'dark' ? 'sun' : 'moon',
+    onSelect: toggleScheme
+  })
+  openGlobalMenu(event, items)
+}
 
 const SEARCH_TAB: Record<SearchType, TabKey> = {
   todo: 'todos',
@@ -484,5 +549,14 @@ function toggleSidebar(): void {
     >
       »
     </button>
+
+    <ContextMenu
+      v-if="globalMenu.open"
+      :x="globalMenu.x"
+      :y="globalMenu.y"
+      :items="globalMenu.items"
+      @close="globalMenu.open = false"
+    />
+    <Toast :message="globalToast" />
   </div>
 </template>

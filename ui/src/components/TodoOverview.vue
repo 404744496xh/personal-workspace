@@ -2,9 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import type { Project, Todo } from '../types'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
-import { formatDate, messageOf, todayString } from '../utils'
+import { copyText, formatDate, messageOf, todayString } from '../utils'
 import { createNote, generateReport } from '../api'
 import { useToast } from '../lib/toast'
+import { useContextMenu } from '../contextMenu'
+import ContextMenu from './ContextMenu.vue'
 import Button from './ui/Button.vue'
 import Modal from './ui/Modal.vue'
 import Toast from './Toast.vue'
@@ -276,6 +278,45 @@ const detailEmpty = computed(() =>
 
 const { toast, show } = useToast()
 const reporting = ref(false)
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
+
+function copyCount(value: number, label: string): void {
+  void copyText(String(value)).then((ok) => show(ok ? `已复制「${label}」数量` : '复制失败'))
+}
+
+function openDayMenu(event: MouseEvent, day: string): void {
+  openContextMenu(event, [
+    { label: '查看当天记录', icon: 'calendar', onSelect: () => { detailKey.value = day } },
+    {
+      label: '复制日期',
+      icon: 'copy',
+      onSelect: () => {
+        void copyText(day).then((ok) => show(ok ? '已复制日期' : '复制失败'))
+      }
+    }
+  ])
+}
+
+function openStatMenu(event: MouseEvent, stat: 'open' | 'stale' | 'dismissed'): void {
+  if (stat === 'open') {
+    openContextMenu(event, [
+      { label: '查看未完成待办', icon: 'checklist', onSelect: () => emit('openTodos', { status: 'OPEN' }) },
+      { label: '复制数量', icon: 'copy', onSelect: () => copyCount(openCount.value, '未完成') }
+    ])
+    return
+  }
+  if (stat === 'stale') {
+    openContextMenu(event, [
+      { label: '查看快逾期待办', icon: 'clock', onSelect: () => emit('openTodos', { status: 'OPEN', stale: true }) },
+      { label: '复制数量', icon: 'copy', onSelect: () => copyCount(staleCount.value, '快逾期') }
+    ])
+    return
+  }
+  openContextMenu(event, [
+    { label: '查看不用处理待办', icon: 'archive', onSelect: () => emit('openTodos', { status: 'DISMISSED' }) },
+    { label: '复制数量', icon: 'copy', onSelect: () => copyCount(dismissedCount.value, '不用处理') }
+  ])
+}
 
 function backfillTodo(): void {
   const day = detailDay.value
@@ -409,6 +450,7 @@ function openTodoDetail(todo: Todo): void {
               @mouseenter="showTip(cell.key, $event)"
               @mouseleave="clearTip"
               @click="detailKey = cell.key"
+              @contextmenu.prevent.stop="openDayMenu($event, cell.key)"
               @keydown.enter.prevent="detailKey = cell.key"
               @keydown.space.prevent="detailKey = cell.key"
               :data-date="cell.key"
@@ -450,6 +492,7 @@ function openTodoDetail(todo: Todo): void {
             @mouseenter="showTip(cell.key, $event)"
             @mouseleave="clearTip"
             @click="detailKey = cell.key"
+            @contextmenu.prevent.stop="openDayMenu($event, cell.key)"
             @keydown.enter.prevent="detailKey = cell.key"
             @keydown.space.prevent="detailKey = cell.key"
           >
@@ -553,6 +596,7 @@ function openTodoDetail(todo: Todo): void {
               :style="{ left: `${pointX(index)}%`, width: `${92 / Math.max(1, trendPoints.length - 1)}%` }"
               @mouseenter="showTip(day.key, $event)"
               @mouseleave="clearTip"
+              @contextmenu.prevent.stop="openDayMenu($event, day.key)"
             ></span>
           </div>
           <div class="mt-1 flex items-center justify-between text-[9px] tabular-nums text-[#8e8e93] dark:text-[#98989d]">
@@ -587,6 +631,7 @@ function openTodoDetail(todo: Todo): void {
           class="ws-overview-stat ws-overview-open flex flex-col justify-center rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-3 text-left shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-150 hover:bg-white/[0.92] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#232325]/80"
           aria-label="查看未完成待办"
           title="查看未完成待办"
+          @contextmenu.prevent.stop="openStatMenu($event, 'open')"
           @click="emit('openTodos', { status: 'OPEN' })"
         >
           <p class="text-[12px] text-[#6e6e73] dark:text-[#98989d]">未完成</p>
@@ -600,6 +645,7 @@ function openTodoDetail(todo: Todo): void {
           class="ws-overview-stat ws-overview-stale-card flex flex-col justify-center rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-3 text-left shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-150 hover:bg-white/[0.92] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#232325]/80"
           aria-label="查看创建超过 7 天的待办"
           title="查看创建超过 7 天的待办"
+          @contextmenu.prevent.stop="openStatMenu($event, 'stale')"
           @click="openStaleTodos"
         >
           <p class="text-[12px] text-[#6e6e73] dark:text-[#98989d]">快逾期</p>
@@ -613,6 +659,7 @@ function openTodoDetail(todo: Todo): void {
           class="ws-overview-stat ws-overview-dismissed-card col-span-2 flex flex-col justify-center rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-3 text-left shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-150 hover:bg-white/[0.92] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#232325]/80 lg:col-span-1"
           aria-label="查看不用处理待办"
           title="查看不用处理待办"
+          @contextmenu.prevent.stop="openStatMenu($event, 'dismissed')"
           @click="emit('openTodos', { status: 'DISMISSED' })"
         >
           <p class="text-[12px] text-[#6e6e73] dark:text-[#98989d]">不用处理</p>
@@ -700,6 +747,13 @@ function openTodoDetail(todo: Todo): void {
       </div>
     </Modal>
 
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
+    />
     <Toast :message="toast" />
 
   </div>

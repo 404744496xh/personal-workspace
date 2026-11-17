@@ -2,7 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import type { NoteTemplate } from '../types'
 import { saveNoteTemplates } from '../api'
-import { messageOf } from '../utils'
+import { copyText, messageOf } from '../utils'
+import { useToast } from '../lib/toast'
+import { useContextMenu } from '../contextMenu'
+import ContextMenu from './ContextMenu.vue'
+import Toast from './Toast.vue'
 import Button from './ui/Button.vue'
 import Input from './ui/Input.vue'
 import Modal from './ui/Modal.vue'
@@ -22,6 +26,31 @@ const content = ref('')
 const saving = ref(false)
 const error = ref('')
 const pendingDelete = ref(false)
+const { toast, show } = useToast()
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
+
+function copyTemplate(text: string, label: string): void {
+  void copyText(text).then((ok) => show(ok ? label : '复制失败'))
+}
+
+function openTemplateMenu(event: MouseEvent, index: number): void {
+  const template = drafts.value[index]
+  if (!template) return
+  load(index)
+  openContextMenu(event, [
+    { label: '编辑此模板', icon: 'edit', onSelect: () => load(index) },
+    { label: '复制模板名', icon: 'title', onSelect: () => copyTemplate(template.name, '已复制模板名') },
+    { label: '复制模板内容', icon: 'copy', onSelect: () => copyTemplate(template.content, '已复制模板内容') },
+    { divider: true, label: '' },
+    {
+      label: '删除模板',
+      icon: 'trash',
+      danger: true,
+      disabled: saving.value,
+      onSelect: () => { pendingDelete.value = true }
+    }
+  ])
+}
 
 const editingExisting = computed(() => typeof selected.value === 'number')
 const deleteName = computed(() => typeof selected.value === 'number'
@@ -142,6 +171,7 @@ onMounted(() => {
             :class="selected === index
               ? 'bg-[#007AFF]/[0.10] font-medium text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]'
               : 'text-[#1d1d1f] hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]'"
+            @contextmenu.prevent.stop="openTemplateMenu($event, index)"
             @click="load(index)"
           >{{ item.name }}</button>
           <p
@@ -208,5 +238,13 @@ onMounted(() => {
         </div>
       </section>
     </div>
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
+    />
+    <Toast :message="toast" />
   </Modal>
 </template>

@@ -400,12 +400,13 @@ function copyFromMenu(text: string, label: string): void {
 
 function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
   const items: ContextMenuItem[] = [
-    { label: '打开编辑', onSelect: () => openEdit(note) },
-    { label: '复制标题', onSelect: () => copyFromMenu(note.title, '已复制标题') }
+    { label: '打开编辑', icon: 'edit', onSelect: () => openEdit(note) },
+    { label: '复制标题', icon: 'title', onSelect: () => copyFromMenu(note.title, '已复制标题') }
   ]
   if (note.excerpt) {
     items.push({
       label: '复制摘要',
+      icon: 'copy',
       onSelect: () => copyFromMenu(note.excerpt, '已复制摘要')
     })
   }
@@ -413,14 +414,15 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
     (note.project && projectTitleOf(note.project)) || note.module || note.todos.length)
   if (hasTargets) items.push({ divider: true, label: '' })
   if (note.project && projectTitleOf(note.project)) {
-    items.push({ label: '打开项目', onSelect: () => jumpToProject(note) })
+    items.push({ label: '打开项目', icon: 'folder', onSelect: () => jumpToProject(note) })
   }
   if (note.module) {
-    items.push({ label: '查看模块待办', onSelect: () => jumpToModule(note) })
+    items.push({ label: '查看模块待办', icon: 'filter', onSelect: () => jumpToModule(note) })
   }
   for (const name of note.todos) {
     items.push({
       label: `待办 · ${todoTitleOf(name) || '已删除'}`,
+      icon: 'checklist',
       onSelect: () => jumpToTodo(note, name)
     })
   }
@@ -428,6 +430,7 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
     { divider: true, label: '' },
     {
       label: '删除',
+      icon: 'trash',
       danger: true,
       onSelect: () => {
         pendingDelete.value = note
@@ -435,6 +438,13 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
     }
   )
   openContextMenu(event, items)
+}
+
+function openEmptyMenu(event: MouseEvent): void {
+  openContextMenu(event, [
+    { label: '新建笔记', icon: 'plus', onSelect: openCreate },
+    { label: '管理笔记模板', icon: 'note', onSelect: () => { templatesOpen.value = true } }
+  ])
 }
 
 function closeTodoMenu(event: MouseEvent): void {
@@ -590,6 +600,7 @@ onUnmounted(() => {
     <section
       v-else-if="!filteredNotes.length"
       class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
+      @contextmenu.prevent.stop="openEmptyMenu($event)"
     >
       <p class="ws-state-title text-[15px] font-semibold">
         {{ notes.length ? '没有匹配的笔记' : '还没有笔记' }}

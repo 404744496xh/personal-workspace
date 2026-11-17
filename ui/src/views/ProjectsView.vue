@@ -203,14 +203,16 @@ function openProjectMenu(event: MouseEvent, project: Project): void {
   openContextMenu(event, [
     {
       label: '查看关联笔记',
+      icon: 'note',
       disabled: noteBusy.value !== null,
       onSelect: () => void openProjectNotes(project)
     },
-    { label: '查看待办', onSelect: () => openProjectTodos(project) },
-    { label: '编辑', onSelect: () => openEdit(project) },
+    { label: '查看待办', icon: 'checklist', onSelect: () => openProjectTodos(project) },
+    { label: '编辑', icon: 'edit', onSelect: () => openEdit(project) },
     { divider: true, label: '' },
     {
       label: '复制项目名',
+      icon: 'copy',
       onSelect: () => {
         void copyText(project.title).then((ok) => {
           show(ok ? '已复制项目名' : '复制失败')
@@ -220,9 +222,35 @@ function openProjectMenu(event: MouseEvent, project: Project): void {
     { divider: true, label: '' },
     {
       label: '删除',
+      icon: 'trash',
       danger: true,
       onSelect: () => askDelete(project)
     }
+  ])
+}
+
+function openModuleChipMenu(event: MouseEvent, project: Project, moduleName: string): void {
+  openContextMenu(event, [
+    {
+      label: '查看该模块待办',
+      icon: 'filter',
+      onSelect: () => emit('openTodos', { project: project.name, module: moduleName })
+    },
+    {
+      label: '复制模块名',
+      icon: 'copy',
+      onSelect: () => {
+        void copyText(moduleName).then((ok) => {
+          show(ok ? '已复制模块名' : '复制失败')
+        })
+      }
+    }
+  ])
+}
+
+function openEmptyMenu(event: MouseEvent): void {
+  openContextMenu(event, [
+    { label: '新建项目', icon: 'plus', onSelect: openCreate }
   ])
 }
 
@@ -320,6 +348,7 @@ onMounted(() => {
     <section
       v-else-if="!filteredProjects.length"
       class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
+      @contextmenu.prevent.stop="openEmptyMenu($event)"
     >
       <p class="ws-state-title text-[15px] font-semibold">
         {{ hasProjectFilters ? '没有匹配的项目' : '还没有项目' }}
@@ -427,6 +456,7 @@ onMounted(() => {
             v-for="item in project.modules"
             :key="item"
             class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/70 dark:bg-white/[0.08] dark:text-[#f5f5f7]/70"
+            @contextmenu.prevent.stop="openModuleChipMenu($event, project, item)"
           >{{ item }}</span>
         </div>
 
