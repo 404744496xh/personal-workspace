@@ -110,6 +110,7 @@ const busy = ref<string | null>(null)
 const noteBusy = ref<string | null>(null)
 const toast = ref('')
 const toastAction = ref<{ label: string; run: () => void } | null>(null)
+const pendingUndo = ref<{ label: string; run: () => void } | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let requestSeq = 0
 const { menu: contextMenu, open: openContextMenu } = useContextMenu()
@@ -703,6 +704,18 @@ function triggerToastAction(): void {
   action?.run()
 }
 
+function showUndoToast(message: string, run: () => void): void {
+  const action = {
+    label: '撤销',
+    run: () => {
+      pendingUndo.value = null
+      run()
+    }
+  }
+  pendingUndo.value = action
+  showToast(message, action)
+}
+
 function handleError(err: unknown): void {
   if (err instanceof ApiError && err.status === 401) {
     emit('unauthorized')
@@ -1031,6 +1044,7 @@ function handleMenuPointerDown(event: PointerEvent): void {
 
 function handleMenuKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Escape') {
+    if (handleUndoKeydown(event)) return
     handleNavKeydown(event)
     return
   }
@@ -1041,6 +1055,30 @@ function handleMenuKeydown(event: KeyboardEvent): void {
   timeOpen.value = false
   sortOpen.value = false
   navIndex.value = -1
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target instanceof Element ? target : null
+  if (!element) return false
+  const field = element.closest('input, textarea, select')
+  if (field instanceof HTMLInputElement) {
+    return !['checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'range'].includes(field.type)
+  }
+  if (field) return true
+  return Boolean(element.closest(
+    '[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]'))
+}
+
+function handleUndoKeydown(event: KeyboardEvent): boolean {
+  if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return false
+  if (event.key.toLowerCase() !== 'z') return false
+  if (isEditableTarget(event.target)) return false
+  if (navBlocked() || bulkBusy.value || busy.value) return false
+  const action = pendingUndo.value
+  if (!action) return false
+  event.preventDefault()
+  action.run()
+  return true
 }
 
 const navIndex = ref(-1)
@@ -1518,13 +1556,13 @@ async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
   selected.value = new Set()
   persistCache()
   const undo = options.undo
-  showToast(
-    failed
+  if (!failed && undo) {
+    showUndoToast(options.message ?? `已处理 ${targets.length} 条`, () => void undoBulk(undo))
+  } else {
+    showToast(failed
       ? `已处理 ${targets.length - failed} 条，${failed} 条失败`
-      : (options.message ?? `已处理 ${targets.length} 条`),
-    !failed && undo
-      ? { label: '撤销', run: () => void undoBulk(undo) }
-      : undefined)
+      : (options.message ?? `已处理 ${targets.length} 条`))
+  }
 }
 
 function completeNow(targets: Todo[]): void {
@@ -1747,8 +1785,7 @@ async function toggle(todo: Todo): Promise<void> {
     const updated = await updateTodo(todo.name, payload)
     const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
     if (updatedIndex >= 0) items.value[updatedIndex] = updated
-    showToast(nextCompleted ? '已完成' : '已恢复为待办',
-      { label: '撤销', run: () => void undoBulk(before) })
+    showUndoToast(nextCompleted ? '已完成' : '已恢复为待办', () => void undoBulk(before))
   } catch (err) {
     items.value = snapshotItems
     handleError(err)
@@ -1787,8 +1824,7 @@ async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
     const updated = await updateTodo(todo.name, payload)
     const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
     if (updatedIndex >= 0) items.value[updatedIndex] = updated
-    showToast(dismissed ? '已标记为不用处理' : '已恢复到待办',
-      { label: '撤销', run: () => void undoBulk(before) })
+    showUndoToast(dismissed ? '已标记为不用处理' : '已恢复到待办', () => void undoBulk(before))
   } catch (err) {
     items.value = snapshotItems
     handleError(err)
@@ -1826,6 +1862,7 @@ onMounted(() => {  void load({ silent: Boolean(cachedTodos) })
 
 onUnmounted(() => {
   if (toastTimer) window.clearTimeout(toastTimer)
+  pendingUndo.value = null
   document.removeEventListener('pointerdown', handleMenuPointerDown)
   document.removeEventListener('keydown', handleMenuKeydown)
 })
@@ -2999,7 +3036,7 @@ onUnmounted(() => {
       <span class="ws-pager-total">
         共 {{ displayedTotal }} 条<template v-if="truncated">（仅显示最近 {{ PAGE_SIZE }} 条）</template>
       </span>
-      <span class="ws-nav-hint hidden sm:inline"> · ↑↓/J/K 选择，Enter 打开，X 完成</span>
+      <span class="ws-nav-hint hidden sm:inline"> · ↑↓/J/K 选择，Enter 打开，X 完成，Ctrl+Z 撤销</span>
     </div>
 
     <TodoForm
