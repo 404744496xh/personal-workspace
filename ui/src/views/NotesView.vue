@@ -12,7 +12,7 @@ import {
   updateNote
 } from '../api'
 import type { Note, NotePayload, NoteSummary, NoteTemplate, Project, Todo } from '../types'
-import { excerpt, formatDateTime, messageOf } from '../utils'
+import { copyText, excerpt, formatDateTime, messageOf } from '../utils'
 import { takeNotesTarget, takeSearchTarget, setSearchTarget } from '../searchTarget'
 import type { TodosTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
@@ -24,6 +24,9 @@ import NoteTemplatesDialog from '../components/NoteTemplatesDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
+import ContextMenu from '../components/ContextMenu.vue'
+import { useContextMenu } from '../contextMenu'
+import type { ContextMenuItem } from '../contextMenu'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
 import { DEFAULT_NOTE_TEMPLATES } from '../noteTemplates'
@@ -66,6 +69,7 @@ const pendingDelete = ref<NoteSummary | null>(null)
 const noteTemplates = ref<NoteTemplate[]>(DEFAULT_NOTE_TEMPLATES.map((template) => ({ ...template })))
 const templatesOpen = ref(false)
 const { toast, show } = useToast()
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const sortedNotes = computed(() => [...notes.value].sort((left, right) =>
   (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '')))
@@ -388,6 +392,51 @@ function toggleTodoMenu(name: string): void {
   todoMenuNote.value = todoMenuNote.value === name ? null : name
 }
 
+function copyFromMenu(text: string, label: string): void {
+  void copyText(text).then((ok) => {
+    show(ok ? label : '复制失败')
+  })
+}
+
+function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
+  const items: ContextMenuItem[] = [
+    { label: '打开编辑', onSelect: () => openEdit(note) },
+    { label: '复制标题', onSelect: () => copyFromMenu(note.title, '已复制标题') }
+  ]
+  if (note.excerpt) {
+    items.push({
+      label: '复制摘要',
+      onSelect: () => copyFromMenu(note.excerpt, '已复制摘要')
+    })
+  }
+  const hasTargets = Boolean(
+    (note.project && projectTitleOf(note.project)) || note.module || note.todos.length)
+  if (hasTargets) items.push({ divider: true, label: '' })
+  if (note.project && projectTitleOf(note.project)) {
+    items.push({ label: '打开项目', onSelect: () => jumpToProject(note) })
+  }
+  if (note.module) {
+    items.push({ label: '查看模块待办', onSelect: () => jumpToModule(note) })
+  }
+  for (const name of note.todos) {
+    items.push({
+      label: `待办 · ${todoTitleOf(name) || '已删除'}`,
+      onSelect: () => jumpToTodo(note, name)
+    })
+  }
+  items.push(
+    { divider: true, label: '' },
+    {
+      label: '删除',
+      danger: true,
+      onSelect: () => {
+        pendingDelete.value = note
+      }
+    }
+  )
+  openContextMenu(event, items)
+}
+
 function closeTodoMenu(event: MouseEvent): void {
   const element = event.target as Element | null
   if (!element?.closest?.('.ws-note-todo-wrap')) todoMenuNote.value = null
@@ -561,6 +610,7 @@ onUnmounted(() => {
         class="ws-note-card group cursor-pointer rounded-[18px] border border-white/20 bg-white/[0.72] p-5 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-white/[0.82] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#1c1c1e]/85"
         :class="{ 'relative z-30': todoMenuNote === note.name }"
         @click="openEdit(note)"
+        @contextmenu.prevent.stop="openNoteMenu($event, note)"
       >
         <header class="mb-2 flex items-start justify-between gap-2">
           <div class="min-w-0">
@@ -659,6 +709,14 @@ onUnmounted(() => {
       confirm-text="删除"
       @confirm="removeConfirmed"
       @close="pendingDelete = null"
+    />
+
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
     />
 
     <Toast :message="toast" />

@@ -4,7 +4,7 @@ Halo 2.26+ 的前台个人工作台插件：把待办、项目、快速命令与
 
 后端 Java 21 + WebFlux，前端 Vue 3 + Vite + Tailwind，笔记编辑器使用 Vditor。
 
-当前版本：`0.6.98`
+当前版本：`0.6.100`
 
 ![待办](docs/screenshots/todos.png)
 
@@ -103,6 +103,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 - 桌面端侧栏可折叠，偏好写入本地存储；移动端单列布局
 - 工具区可整块折叠（搜索、筛选、排序、操作按钮）；快捷键在插件设置中分别配置：折叠全部（默认 `z+d+v`）、新建待办（默认 `n+t`，直接打开新建表单）、全局搜索（默认 `s+s`），均按顺序输入且焦点不在输入框或编辑器时生效
 - 各页数据内存缓存，切换页面先显示上次内容再静默刷新
+- 待办（含多选、项目 / 模块标题）、首屏进行中与日历明细、项目、笔记、命令均支持右键快捷菜单；编辑器和输入框保留浏览器原生右键
 
 ![深色模式](docs/screenshots/todos-dark.png)
 
@@ -112,7 +113,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 
 ```bash
 ./gradlew build
-# 产物：build/libs/personal-workspace-0.6.98.jar
+# 产物：build/libs/personal-workspace-0.6.100.jar
 ```
 
 打开 Halo Console →「插件 → 安装」，上传 jar 并启用，然后访问 `/workspace`。

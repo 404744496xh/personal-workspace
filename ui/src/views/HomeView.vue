@@ -4,11 +4,13 @@ import { ApiError, listProjects, listTodos, updateTodo } from '../api'
 import { readCache, writeCache } from '../cache'
 import type { Project, Todo } from '../types'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
-import { formatDate, messageOf } from '../utils'
+import { copyText, formatDate, messageOf } from '../utils'
 import { useToast } from '../lib/toast'
 import TodoOverview from '../components/TodoOverview.vue'
 import Toast from '../components/Toast.vue'
+import ContextMenu from '../components/ContextMenu.vue'
 import Button from '../components/ui/Button.vue'
+import { useContextMenu } from '../contextMenu'
 
 const PAGE_SIZE = 500
 const ACTIVE_SIZE = 8
@@ -28,6 +30,7 @@ const loading = ref(!cached)
 const error = ref('')
 const busy = ref<string | null>(null)
 const { toast, show } = useToast()
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const openItems = computed(() => items.value
   .filter((todo) => !todo.completed && !todo.dismissed)
@@ -41,6 +44,51 @@ function projectLabel(todo: Todo): string {
 
 function openTodoContext(todo: Todo): void {
   emit('openTodos', todo.project ? { status: 'OPEN', project: todo.project } : { status: 'OPEN' })
+}
+
+function openHomeTodoMenu(event: MouseEvent, todo: Todo): void {
+  openContextMenu(event, [
+    {
+      label: '标记完成',
+      disabled: busy.value !== null,
+      onSelect: () => void toggleTodo(todo)
+    },
+    {
+      label: '在待办中打开',
+      onSelect: () => openTodoContext(todo)
+    },
+    {
+      label: '查看关联笔记',
+      onSelect: () => emit('openNotes', { todo: todo.name })
+    },
+    { divider: true, label: '' },
+    {
+      label: '复制标题',
+      onSelect: () => {
+        void copyText(todo.title).then((ok) => show(ok ? '已复制标题' : '复制失败'))
+      }
+    }
+  ])
+}
+
+function openHomeProjectMenu(event: MouseEvent, project: Project): void {
+  openContextMenu(event, [
+    {
+      label: '打开项目',
+      onSelect: () => emit('openProjects', project.title)
+    },
+    {
+      label: '查看该项目待办',
+      onSelect: () => emit('openTodos', { project: project.name })
+    },
+    { divider: true, label: '' },
+    {
+      label: '复制项目名',
+      onSelect: () => {
+        void copyText(project.title).then((ok) => show(ok ? '已复制项目名' : '复制失败'))
+      }
+    }
+  ])
 }
 
 async function toggleTodo(todo: Todo): Promise<void> {
@@ -135,6 +183,8 @@ onMounted(load)
       @open-todos="(target) => emit('openTodos', target)"
       @open-projects="(title) => emit('openProjects', title)"
       @open-notes="(target) => emit('openNotes', target)"
+      @todo-contextmenu="openHomeTodoMenu"
+      @project-contextmenu="openHomeProjectMenu"
     />
 
     <section
@@ -158,6 +208,7 @@ onMounted(load)
         v-for="todo in inProgress"
         :key="todo.name"
         class="ws-home-active-row flex items-start gap-1 rounded-xl transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+        @contextmenu.prevent.stop="openHomeTodoMenu($event, todo)"
       >
         <label class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
           <input
@@ -188,6 +239,14 @@ onMounted(load)
         class="px-3 pb-1 pt-1 text-[11px] text-[#6e6e73] dark:text-[#98989d]"
       >仅显示最新创建的 {{ inProgress.length }} 条，其余 {{ openItems.length - inProgress.length }} 条在待办页</p>
     </section>
+
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
+    />
 
     <Toast :message="toast" />
   </div>

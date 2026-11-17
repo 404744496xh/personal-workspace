@@ -8,7 +8,7 @@ import {
   updateCommand
 } from '../api'
 import type { QuickCmd, QuickCmdPayload } from '../types'
-import { messageOf } from '../utils'
+import { copyText, messageOf } from '../utils'
 import { takeSearchTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
 import Button from '../components/ui/Button.vue'
@@ -18,6 +18,8 @@ import CommandForm from '../components/CommandForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
+import ContextMenu from '../components/ContextMenu.vue'
+import { useContextMenu } from '../contextMenu'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
 
@@ -36,6 +38,7 @@ const editing = ref<QuickCmd | null>(null)
 const saving = ref(false)
 const pendingDelete = ref<QuickCmd | null>(null)
 const { toast, show } = useToast()
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const categories = computed(() => {
   const values = new Set<string>()
@@ -136,6 +139,29 @@ async function copy(command: QuickCmd): Promise<void> {
   }
 }
 
+function openCommandMenu(event: MouseEvent, command: QuickCmd): void {
+  openContextMenu(event, [
+    { label: '编辑', onSelect: () => openEdit(command) },
+    { label: '复制命令', onSelect: () => void copy(command) },
+    {
+      label: '复制标题',
+      onSelect: () => {
+        void copyText(command.title).then((ok) => {
+          show(ok ? '已复制标题' : '复制失败')
+        })
+      }
+    },
+    { divider: true, label: '' },
+    {
+      label: '删除',
+      danger: true,
+      onSelect: () => {
+        pendingDelete.value = command
+      }
+    }
+  ])
+}
+
 async function removeConfirmed(): Promise<void> {
   const command = pendingDelete.value
   if (!command) return
@@ -229,6 +255,7 @@ onMounted(() => {
         v-for="command in filteredCommands"
         :key="command.name"
         class="ws-command-card group rounded-[18px] border border-white/20 bg-white/[0.72] p-5 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
+        @contextmenu.prevent.stop="openCommandMenu($event, command)"
       >
         <header class="mb-2 flex items-start justify-between gap-2">
           <div class="min-w-0">
@@ -310,6 +337,14 @@ onMounted(() => {
       confirm-text="删除"
       @confirm="removeConfirmed"
       @close="pendingDelete = null"
+    />
+
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
     />
 
     <Toast :message="toast" />

@@ -13,7 +13,7 @@ import {
   updateTodo
 } from '../api'
 import type { Priority, Project, Todo, TodoPayload } from '../types'
-import { formatDate, formatDateTime, messageOf, priorityLabel } from '../utils'
+import { copyText, formatDate, formatDateTime, messageOf, priorityLabel } from '../utils'
 import { takeSearchTarget, takeTodosTarget } from '../searchTarget'
 import type { NotesTarget } from '../searchTarget'
 import TodoForm from '../components/TodoForm.vue'
@@ -23,6 +23,9 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import ModuleEditor from '../components/ModuleEditor.vue'
 import TodoImportDialog from '../components/TodoImportDialog.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
+import ContextMenu from '../components/ContextMenu.vue'
+import { useContextMenu } from '../contextMenu'
+import type { ContextMenuItem } from '../contextMenu'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
 import Button from '../components/ui/Button.vue'
@@ -107,6 +110,7 @@ const noteBusy = ref<string | null>(null)
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let requestSeq = 0
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const creatingProject = ref(false)
 const newProjectTitle = ref('')
@@ -154,6 +158,7 @@ const viewError = ref('')
 const moveOpen = ref(false)
 const moveProject = ref('')
 const moveModule = ref('')
+const moveSingle = ref(false)
 watch(moveProject, () => {
   moveModule.value = ''
 })
@@ -994,6 +999,7 @@ function toggleSelecting(): void {
     bulkMenuOpen.value = false
     copyMenuOpen.value = false
     moveOpen.value = false
+    moveSingle.value = false
   }
 }
 
@@ -1121,6 +1127,205 @@ async function copySelected(titlesOnly: boolean): Promise<void> {
   showToast(ok ? (titlesOnly ? `已复制 ${todos.length} 条标题` : `已复制 ${todos.length} 条待办`) : '复制失败，请手动选择文本')
 }
 
+function copyTodo(todo: Todo, titlesOnly: boolean): void {
+  void writeClipboard(titlesOnly ? todo.title : buildCopyText([todo])).then((ok) => {
+    showToast(ok
+      ? (titlesOnly ? '已复制标题' : '已复制待办')
+      : '复制失败，请手动选择文本')
+  })
+}
+
+function startMoveTodo(todo: Todo): void {
+  if (bulkBusy.value) return
+  selected.value = new Set([todo.name])
+  selecting.value = true
+  moveSingle.value = true
+  moveProject.value = todo.project ?? ''
+  moveModule.value = ''
+  moveOpen.value = true
+}
+
+function cancelMovePanel(): void {
+  moveOpen.value = false
+  if (!moveSingle.value) return
+  moveSingle.value = false
+  selecting.value = false
+  clearSelected()
+}
+
+function openTodoMenu(event: MouseEvent, todo: Todo): void {
+  if (selecting.value && selected.value.has(todo.name)) {
+    openSelectedTodoMenu(event)
+    return
+  }
+  const disabled = busy.value === todo.name || bulkBusy.value
+  const items: ContextMenuItem[] = []
+  if (selecting.value) {
+    items.push({
+      label: '选择此项',
+      onSelect: () => toggleSelect(todo.name)
+    })
+  }
+  items.push(
+    { label: '编辑', disabled, onSelect: () => openEdit(todo) },
+    {
+      label: todo.completed ? '取消完成' : '标记完成',
+      disabled,
+      onSelect: () => void toggle(todo)
+    },
+    {
+      label: todo.dismissed ? '恢复到待办' : '标记不用处理',
+      disabled,
+      onSelect: () => void setDismissed(todo, !todo.dismissed)
+    },
+    { divider: true, label: '' },
+    {
+      label: '新建关联笔记',
+      disabled: noteBusy.value !== null,
+      onSelect: () => createNoteHere({ todo: todo.name })
+    },
+    {
+      label: '查看关联笔记',
+      disabled: noteBusy.value !== null,
+      onSelect: () => void openRelatedNotes(`t:${todo.name}`, { todo: todo.name })
+    },
+    { divider: true, label: '' },
+    { label: '仅复制标题', onSelect: () => copyTodo(todo, true) },
+    { label: '复制完整信息', onSelect: () => copyTodo(todo, false) },
+    { divider: true, label: '' },
+    { label: '移动到项目/模块…', disabled, onSelect: () => startMoveTodo(todo) },
+    { label: '删除', danger: true, disabled, onSelect: () => askDelete(todo) }
+  )
+  openContextMenu(event, items)
+}
+
+function openSelectedTodoMenu(event: MouseEvent): void {
+  const targets = selectedTodos.value
+  const disabled = bulkBusy.value || !targets.length
+  openContextMenu(event, [
+    { label: '标记完成', disabled, onSelect: bulkComplete },
+    { label: '标记不用处理', disabled, onSelect: bulkDismiss },
+    {
+      label: '移动到项目/模块…',
+      disabled,
+      onSelect: () => {
+        moveSingle.value = false
+        moveOpen.value = true
+      }
+    },
+    {
+      label: '删除所选',
+      danger: true,
+      disabled,
+      onSelect: () => {
+        bulkDeleteOpen.value = true
+      }
+    },
+    { divider: true, label: '' },
+    { label: '复制完整信息', disabled, onSelect: () => void copySelected(false) },
+    { label: '仅复制标题', disabled, onSelect: () => void copySelected(true) },
+    { divider: true, label: '' },
+    { label: '清除选择', onSelect: clearSelected }
+  ])
+}
+
+function openProjectGroupMenu(event: MouseEvent, group: ProjectGroup): void {
+  const items: ContextMenuItem[] = [
+    {
+      label: '全部完成',
+      disabled: !groupOpenTodos(group).length || bulkBusy.value,
+      onSelect: () => completeGroup(group)
+    },
+    {
+      label: '查看关联笔记',
+      disabled: noteBusy.value !== null,
+      onSelect: () => void openRelatedNotes(`p:${group.key}`, { project: group.key })
+    },
+    {
+      label: '新建笔记',
+      onSelect: () => createNoteHere({ project: group.key })
+    },
+    {
+      label: isProjectCollapsed(group.key) ? '展开项目' : '收起项目',
+      onSelect: () => toggleCollapseProject(group.key)
+    }
+  ]
+  if (group.key) {
+    items.push({
+      label: '添加模块',
+      onSelect: () => startAddModule(group.key)
+    })
+  }
+  items.push(
+    { divider: true, label: '' },
+    {
+      label: activeProject.value === group.key ? '清除项目筛选' : '按此项目筛选',
+      onSelect: () => toggleProject(group.key)
+    },
+    {
+      label: '复制项目名',
+      onSelect: () => {
+        void copyText(group.title).then((ok) => {
+          showToast(ok ? '已复制项目名' : '复制失败')
+        })
+      }
+    }
+  )
+  openContextMenu(event, items)
+}
+
+function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: ModuleGroup): void {
+  const items: ContextMenuItem[] = [
+    {
+      label: '全部完成',
+      disabled: !groupOpenTodos(moduleGroup).length || bulkBusy.value,
+      onSelect: () => completeGroup(moduleGroup)
+    },
+    {
+      label: '查看关联笔记',
+      disabled: noteBusy.value !== null,
+      onSelect: () => void openRelatedNotes(
+        `m:${group.key}:${moduleGroup.key}`,
+        { project: group.key, module: moduleGroup.key })
+    },
+    {
+      label: '新建笔记',
+      onSelect: () => createNoteHere({
+        project: group.key,
+        module: moduleGroup.key
+      })
+    },
+    {
+      label: isModuleCollapsed(group.key, moduleGroup.key) ? '展开模块' : '收起模块',
+      onSelect: () => toggleCollapseModule(group.key, moduleGroup.key)
+    }
+  ]
+  if (group.key && moduleGroup.key) {
+    items.push({
+      label: '重命名模块',
+      onSelect: () => startRenameModule(group.key, moduleGroup.key)
+    })
+  }
+  items.push(
+    { divider: true, label: '' },
+    {
+      label: activeProject.value === group.key && activeModule.value === moduleGroup.key
+        ? '清除模块筛选'
+        : '按此模块筛选',
+      onSelect: () => toggleModule(group.key, moduleGroup.key)
+    },
+    {
+      label: '复制模块名',
+      onSelect: () => {
+        void copyText(moduleGroup.label).then((ok) => {
+          showToast(ok ? '已复制模块名' : '复制失败')
+        })
+      }
+    }
+  )
+  openContextMenu(event, items)
+}
+
 async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
   send: (todo: Todo) => Promise<Todo>): Promise<void> {
   if (!targets.length || bulkBusy.value) return
@@ -1223,6 +1428,8 @@ async function applyBulkMove(): Promise<void> {
   if (!targets.length || bulkBusy.value) return
   const projectKey = moveProject.value || null
   const moduleKey = projectKey ? (moveModule.value || null) : null
+  const single = moveSingle.value
+  moveSingle.value = false
   moveOpen.value = false
   try {
     await ensureProjectModule(projectKey, moduleKey)
@@ -1230,6 +1437,7 @@ async function applyBulkMove(): Promise<void> {
     handleError(err)
     return
   }
+  if (single) selecting.value = false
   void runBulk(targets,
     (todo) => ({ ...todo, project: projectKey, module: moduleKey }),
     (todo) => updateTodo(todo.name, {
@@ -2060,7 +2268,7 @@ onUnmounted(() => {
         <option v-for="name in moveModules" :key="name" :value="name">{{ name }}</option>
       </Select>
       <Button variant="primary" size="sm" :disabled="bulkBusy" @click="applyBulkMove">确定</Button>
-      <Button variant="ghost" size="sm" :disabled="bulkBusy" @click="moveOpen = false">取消</Button>
+      <Button variant="ghost" size="sm" :disabled="bulkBusy" @click="cancelMovePanel">取消</Button>
     </div>
 
     <div v-if="activeProject !== null" class="ws-filter-bar mb-4 flex flex-wrap items-center gap-2">
@@ -2134,7 +2342,9 @@ onUnmounted(() => {
           ? 'border-black/[0.07] bg-black/[0.02] dark:border-white/[0.12] dark:bg-white/[0.035]'
           : 'border-white/20 bg-white/[0.72] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70'"
       >
-        <header class="ws-group-header group/project flex items-center gap-1 px-2 pb-1 pt-2">
+        <header
+          class="ws-group-header group/project flex items-center gap-1 px-2 pb-1 pt-2"
+        >
           <label
             v-if="selecting && group.count"
             class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center"
@@ -2156,6 +2366,7 @@ onUnmounted(() => {
               ? 'text-[#007AFF] dark:text-[#64B5FF]'
               : 'text-[#1d1d1f] hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]'"
             :aria-pressed="activeProject === group.key"
+            @contextmenu.prevent.stop="openProjectGroupMenu($event, group)"
             @click="toggleProject(group.key)"
           >
             <span class="ws-group-title truncate text-[15px] font-semibold tracking-[-0.01em]">
@@ -2289,7 +2500,10 @@ onUnmounted(() => {
               ? 'bg-black/[0.035] dark:bg-white/[0.055]'
               : ''"
           >
-            <div v-if="moduleGroup.label" class="ws-module-header flex items-center gap-1">
+            <div
+              v-if="moduleGroup.label"
+              class="ws-module-header flex items-center gap-1"
+            >
               <form
                 v-if="renaming && renaming.project === group.key && renaming.from === moduleGroup.key"
                 class="ws-module-rename flex flex-1 flex-wrap items-center gap-2 px-1 py-1"
@@ -2337,6 +2551,7 @@ onUnmounted(() => {
                     ? 'text-[#007AFF] dark:text-[#64B5FF]'
                     : 'text-[#6e6e73] hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#98989d] dark:hover:bg-white/[0.06] dark:hover:text-[#f5f5f7]'"
                   :aria-pressed="activeProject === group.key && activeModule === moduleGroup.key"
+                  @contextmenu.prevent.stop="openModuleMenu($event, group, moduleGroup)"
                   @click="toggleModule(group.key, moduleGroup.key)"
                 >
                   <span class="truncate">{{ moduleGroup.label }}</span>
@@ -2452,6 +2667,7 @@ onUnmounted(() => {
                 :busy="busy === todo.name"
                 :bulk-busy="bulkBusy"
                 :note-busy="noteBusy !== null"
+                @contextmenu.prevent.stop="openTodoMenu($event, todo)"
                 @select="toggleSelect(todo.name)"
                 @toggle="toggle(todo)"
                 @edit="openEdit(todo)"
@@ -2494,6 +2710,7 @@ onUnmounted(() => {
             :bulk-busy="bulkBusy"
             :note-busy="noteBusy !== null"
             :scope="todoScope(todo)"
+            @contextmenu.prevent.stop="openTodoMenu($event, todo)"
             @select="toggleSelect(todo.name)"
             @toggle="toggle(todo)"
             @edit="openEdit(todo)"
@@ -2609,6 +2826,14 @@ onUnmounted(() => {
       @close="importOpen = false"
       @done="load({ silent: true })"
       @unauthorized="emit('unauthorized')"
+    />
+
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
     />
 
     <div

@@ -11,7 +11,7 @@ import {
   updateProject
 } from '../api'
 import type { Project, ProjectPayload, Todo } from '../types'
-import { messageOf, safeHref } from '../utils'
+import { copyText, messageOf, safeHref } from '../utils'
 import { takeSearchTarget } from '../searchTarget'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
 import { useToast } from '../lib/toast'
@@ -22,6 +22,8 @@ import ProjectForm from '../components/ProjectForm.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
+import ContextMenu from '../components/ContextMenu.vue'
+import { useContextMenu } from '../contextMenu'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
 
@@ -59,6 +61,7 @@ const saving = ref(false)
 const pendingDelete = ref<Project | null>(null)
 const noteBusy = ref<string | null>(null)
 const { toast, show } = useToast()
+const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const stats = computed(() => {
   const result = new Map<string, ProjectStats>()
@@ -196,6 +199,33 @@ function openProjectTodos(project: Project): void {
   emit('openTodos', { project: project.name })
 }
 
+function openProjectMenu(event: MouseEvent, project: Project): void {
+  openContextMenu(event, [
+    {
+      label: '查看关联笔记',
+      disabled: noteBusy.value !== null,
+      onSelect: () => void openProjectNotes(project)
+    },
+    { label: '查看待办', onSelect: () => openProjectTodos(project) },
+    { label: '编辑', onSelect: () => openEdit(project) },
+    { divider: true, label: '' },
+    {
+      label: '复制项目名',
+      onSelect: () => {
+        void copyText(project.title).then((ok) => {
+          show(ok ? '已复制项目名' : '复制失败')
+        })
+      }
+    },
+    { divider: true, label: '' },
+    {
+      label: '删除',
+      danger: true,
+      onSelect: () => askDelete(project)
+    }
+  ])
+}
+
 async function onModuleRenamed(from: string, to: string): Promise<void> {
   const project = editing.value
   if (!project) return
@@ -308,6 +338,7 @@ onMounted(() => {
         :key="project.name"
         class="ws-project-card group cursor-pointer rounded-[18px] border border-white/20 bg-white/[0.72] p-5 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-white/[0.82] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#1c1c1e]/85"
         @click="openEdit(project)"
+        @contextmenu.prevent.stop="openProjectMenu($event, project)"
       >
         <header class="mb-3 flex items-start justify-between gap-2">
           <div class="min-w-0">
@@ -413,6 +444,7 @@ onMounted(() => {
             rel="noopener noreferrer"
             class="max-w-full truncate text-[12px] font-medium text-[#007AFF] hover:underline dark:text-[#64B5FF]"
             @click.stop
+            @contextmenu.stop
           >{{ link }}</a>
         </div>
       </article>
@@ -434,6 +466,14 @@ onMounted(() => {
       confirm-text="删除"
       @confirm="removeConfirmed"
       @close="pendingDelete = null"
+    />
+
+    <ContextMenu
+      v-if="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.open = false"
     />
 
     <Toast :message="toast" />

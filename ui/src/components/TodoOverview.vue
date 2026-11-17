@@ -14,6 +14,8 @@ const emit = defineEmits<{
   openTodos: [target: TodosTarget]
   openProjects: [title?: string]
   openNotes: [target: NotesTarget]
+  todoContextmenu: [event: MouseEvent, todo: Todo]
+  projectContextmenu: [event: MouseEvent, project: Project]
 }>()
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
@@ -633,6 +635,7 @@ function openTodoDetail(todo: Todo): void {
                 class="ws-overview-project w-full rounded-md text-left transition-opacity duration-150 hover:opacity-75 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"
                 :aria-label="`查看项目 ${project.title}`"
                 :title="`查看项目 ${project.title}`"
+                @contextmenu.prevent.stop="emit('projectContextmenu', $event, project)"
                 @click="emit('openProjects', project.title)"
               >
                 <span class="flex items-center gap-2 text-[11px]">
@@ -677,6 +680,7 @@ function openTodoDetail(todo: Todo): void {
                 class="ws-day-detail-item w-full rounded-lg bg-black/[0.03] px-3 py-1.5 text-left transition-colors duration-150 hover:bg-black/[0.06] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:bg-white/[0.05] dark:hover:bg-white/[0.09]"
                 :aria-label="`在待办中打开 ${todo.title}`"
                 :title="`在待办中打开：${todo.title}`"
+                @contextmenu.prevent.stop="emit('todoContextmenu', $event, todo)"
                 @click="openTodoDetail(todo)"
               >
                 <span class="block text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]">{{ todo.title }}</span>
