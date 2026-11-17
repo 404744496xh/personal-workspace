@@ -265,11 +265,28 @@ public class WorkspaceEndpoint implements CustomEndpoint {
     }
 
     private Mono<ServerResponse> listNotes(ServerRequest request) {
+        var keyword = request.queryParam("keyword")
+            .map(String::trim)
+            .filter(value -> !value.isEmpty())
+            .map(value -> value.length() > 200 ? value.substring(0, 200) : value)
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .orElse(null);
         return handle(currentUser.requireUsername().flatMap(username ->
             dataAccess.listNotes(username)
+                .filter(note -> keyword == null || noteMatches(note, keyword))
                 .map(NoteSummary::of)
                 .collectList()
                 .flatMap(WorkspaceEndpoint::okJson)));
+    }
+
+    private static boolean noteMatches(WorkspaceNote note, String keyword) {
+        var spec = note.getSpec();
+        var title = spec.getTitle();
+        if (title != null && title.toLowerCase(Locale.ROOT).contains(keyword)) {
+            return true;
+        }
+        var content = spec.getContent();
+        return content != null && content.toLowerCase(Locale.ROOT).contains(keyword);
     }
 
     private Mono<ServerResponse> getNote(ServerRequest request) {

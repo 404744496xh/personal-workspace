@@ -11,6 +11,7 @@ const props = defineProps<{
   bulkBusy: boolean
   noteBusy: boolean
   scope?: string
+  focused?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,6 +23,7 @@ const emit = defineEmits<{
   dismiss: []
   remove: []
   filter: []
+  menu: [event: MouseEvent]
 }>()
 
 function isOverdue(): boolean {
@@ -33,10 +35,12 @@ function isOverdue(): boolean {
 <template>
   <article
     class="ws-todo group flex items-start gap-1 rounded-xl px-1 transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+    :data-todo-name="todo.name"
     :class="{
       done: todo.completed,
       dismissed: todo.dismissed,
-      'bg-[#007AFF]/[0.06] dark:bg-[#0A84FF]/[0.10]': selecting && selected
+      'bg-[#007AFF]/[0.06] dark:bg-[#0A84FF]/[0.10]': selecting && selected,
+      'ws-todo-focus !bg-[#007AFF]/[0.08] dark:!bg-[#0A84FF]/[0.14]': focused && !(selecting && selected)
     }"
   >
     <label
@@ -117,6 +121,7 @@ function isOverdue(): boolean {
     <div
       class="ws-todo-actions flex shrink-0 items-center self-center transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
     >
+      <div class="hidden items-center sm:flex">
       <Button
         variant="ghost"
         size="icon"
@@ -195,6 +200,21 @@ function isOverdue(): boolean {
             stroke-linecap="round"
             stroke-linejoin="round"
           />
+        </svg>
+      </Button>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        class="sm:hidden"
+        :aria-label="`${todo.title} 的更多操作`"
+        title="更多操作"
+        @click="emit('menu', $event)"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="3.5" cy="8" r="1.2" fill="currentColor" />
+          <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+          <circle cx="12.5" cy="8" r="1.2" fill="currentColor" />
         </svg>
       </Button>
     </div>

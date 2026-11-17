@@ -24,6 +24,7 @@ import ModuleEditor from '../components/ModuleEditor.vue'
 import TodoImportDialog from '../components/TodoImportDialog.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
 import ContextMenu from '../components/ContextMenu.vue'
+import Toast from '../components/Toast.vue'
 import { useContextMenu } from '../contextMenu'
 import type { ContextMenuItem } from '../contextMenu'
 import { toolsCollapsed } from '../collapse'
@@ -108,6 +109,7 @@ const pendingDelete = ref<Todo | null>(null)
 const busy = ref<string | null>(null)
 const noteBusy = ref<string | null>(null)
 const toast = ref('')
+const toastAction = ref<{ label: string; run: () => void } | null>(null)
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let requestSeq = 0
 const { menu: contextMenu, open: openContextMenu } = useContextMenu()
@@ -683,12 +685,22 @@ function buildModuleGroups(bucket: Map<string, Todo[]>, preferred: string[],
   return result
 }
 
-function showToast(message: string): void {
+function showToast(message: string, action?: { label: string; run: () => void }): void {
   toast.value = message
+  toastAction.value = action ?? null
   if (toastTimer) window.clearTimeout(toastTimer)
   toastTimer = window.setTimeout(() => {
     toast.value = ''
-  }, 2400)
+    toastAction.value = null
+  }, action ? 6000 : 2400)
+}
+
+function triggerToastAction(): void {
+  const action = toastAction.value
+  toastAction.value = null
+  toast.value = ''
+  if (toastTimer) window.clearTimeout(toastTimer)
+  action?.run()
 }
 
 function handleError(err: unknown): void {
@@ -1018,13 +1030,81 @@ function handleMenuPointerDown(event: PointerEvent): void {
 }
 
 function handleMenuKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape') return
+  if (event.key !== 'Escape') {
+    handleNavKeydown(event)
+    return
+  }
   bulkMenuOpen.value = false
   copyMenuOpen.value = false
   viewsOpen.value = false
   filterOpen.value = false
   timeOpen.value = false
   sortOpen.value = false
+  navIndex.value = -1
+}
+
+const navIndex = ref(-1)
+const navTodos = computed(() => {
+  if (viewMode.value === 'flat') return visibleItems.value
+  return groups.value.flatMap((group) => {
+    if (isProjectCollapsed(group.key)) return []
+    return group.modules.flatMap((module) =>
+      isModuleCollapsed(group.key, module.key) ? [] : module.todos)
+  })
+})
+const navTodoName = computed(() => navTodos.value[navIndex.value]?.name ?? '')
+
+watch(navTodos, (list) => {
+  if (navIndex.value >= list.length) navIndex.value = list.length - 1
+}, { flush: 'post' })
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  const element = target instanceof Element ? target : null
+  return Boolean(element?.closest(
+    'input, textarea, select, button, a, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"], [role="button"]'))
+}
+
+function navBlocked(): boolean {
+  return formOpen.value || importOpen.value || pendingDelete.value !== null
+    || bulkDeleteOpen.value || moveOpen.value || renaming.value !== null
+    || addingModuleFor.value !== null || contextMenu.open
+}
+
+function scrollNavIntoView(): void {
+  const name = navTodoName.value
+  if (!name) return
+  const element = document.querySelector(`[data-todo-name="${CSS.escape(name)}"]`)
+  element?.scrollIntoView({ block: 'nearest' })
+}
+
+function handleNavKeydown(event: KeyboardEvent): void {
+  if (event.defaultPrevented) return
+  if (event.ctrlKey || event.metaKey || event.altKey) return
+  if (isInteractiveTarget(event.target) || navBlocked()) return
+  const list = navTodos.value
+  if (!list.length) return
+  const key = event.key
+  if (key === 'ArrowDown' || key === 'j' || key === 'J') {
+    event.preventDefault()
+    navIndex.value = navIndex.value < 0 ? 0 : Math.min(list.length - 1, navIndex.value + 1)
+    scrollNavIntoView()
+    return
+  }
+  if (key === 'ArrowUp' || key === 'k' || key === 'K') {
+    event.preventDefault()
+    navIndex.value = navIndex.value < 0 ? 0 : Math.max(0, navIndex.value - 1)
+    scrollNavIntoView()
+    return
+  }
+  const todo = list[navIndex.value]
+  if (!todo) return
+  if (key === 'x' || key === 'X') {
+    event.preventDefault()
+    void toggle(todo)
+  } else if (key === 'Enter') {
+    event.preventDefault()
+    openEdit(todo)
+  }
 }
 
 function toggleSelect(name: string): void {
@@ -1354,8 +1434,64 @@ function openEmptyMenu(event: MouseEvent): void {
   ])
 }
 
+interface TodoBefore {
+  completed: boolean
+  dismissed: boolean
+  project: string | null
+  module: string | null
+}
+
+function captureBefore(targets: Todo[]): Map<string, TodoBefore> {
+  return new Map(targets.map((todo) => [todo.name, {
+    completed: todo.completed,
+    dismissed: todo.dismissed,
+    project: todo.project,
+    module: todo.module
+  }]))
+}
+
+async function undoBulk(before: Map<string, TodoBefore>): Promise<void> {
+  if (!before.size || bulkBusy.value) return
+  bulkBusy.value = true
+  let failed = 0
+  let restored = 0
+  for (const [name, old] of before) {
+    const current = items.value.find((todo) => todo.name === name)
+    if (!current) {
+      failed += 1
+      continue
+    }
+    try {
+      const updated = await updateTodo(name, {
+        title: current.title,
+        detail: current.detail,
+        priority: current.priority,
+        project: old.project,
+        module: old.module,
+        reporter: current.reporter,
+        dueDate: current.dueDate,
+        completed: old.completed,
+        dismissed: old.dismissed
+      })
+      const index = items.value.findIndex((todo) => todo.name === name)
+      if (index >= 0) items.value[index] = updated
+      restored += 1
+    } catch (err) {
+      failed += 1
+      if (err instanceof ApiError && err.status === 401) {
+        emit('unauthorized')
+        break
+      }
+    }
+  }
+  bulkBusy.value = false
+  selected.value = new Set()
+  persistCache()
+  showToast(failed ? `已撤销 ${restored} 条，${failed} 条失败` : `已撤销 ${restored} 条`)
+}
+
 async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
-  send: (todo: Todo) => Promise<Todo>): Promise<void> {
+  send: (todo: Todo) => Promise<Todo>, options: { message?: string; undo?: Map<string, TodoBefore> } = {}): Promise<void> {
   if (!targets.length || bulkBusy.value) return
   bulkBusy.value = true
   const snapshot = new Map(items.value.map((todo) => [todo.name, todo]))
@@ -1381,13 +1517,19 @@ async function runBulk(targets: Todo[], optimistic: (todo: Todo) => Todo,
   bulkBusy.value = false
   selected.value = new Set()
   persistCache()
-  showToast(failed
-    ? `已处理 ${targets.length - failed} 条，${failed} 条失败`
-    : `已处理 ${targets.length} 条`)
+  const undo = options.undo
+  showToast(
+    failed
+      ? `已处理 ${targets.length - failed} 条，${failed} 条失败`
+      : (options.message ?? `已处理 ${targets.length} 条`),
+    !failed && undo
+      ? { label: '撤销', run: () => void undoBulk(undo) }
+      : undefined)
 }
 
 function completeNow(targets: Todo[]): void {
   if (!targets.length) return
+  const before = captureBefore(targets)
   const now = new Date().toISOString()
   void runBulk(targets,
     (todo) => ({ ...todo, completed: true, completedAt: now, dismissed: false, dismissedAt: null }),
@@ -1400,7 +1542,8 @@ function completeNow(targets: Todo[]): void {
       reporter: todo.reporter,
       dueDate: todo.dueDate,
       completed: true
-    }))
+    }),
+    { message: `已完成 ${targets.length} 条`, undo: before })
 }
 
 function groupTodos(group: ProjectGroup | ModuleGroup): Todo[] {
@@ -1435,6 +1578,7 @@ function bulkDismiss(): void {
     showToast('所选待办都已不用处理')
     return
   }
+  const before = captureBefore(targets)
   const now = new Date().toISOString()
   void runBulk(targets,
     (todo) => ({ ...todo, dismissed: true, dismissedAt: now, completed: false, completedAt: null }),
@@ -1448,7 +1592,8 @@ function bulkDismiss(): void {
       dueDate: todo.dueDate,
       completed: false,
       dismissed: true
-    }))
+    }),
+    { message: `已标记 ${targets.length} 条不用处理`, undo: before })
 }
 
 async function applyBulkMove(): Promise<void> {
@@ -1466,6 +1611,7 @@ async function applyBulkMove(): Promise<void> {
     return
   }
   if (single) selecting.value = false
+  const before = captureBefore(targets)
   void runBulk(targets,
     (todo) => ({ ...todo, project: projectKey, module: moduleKey }),
     (todo) => updateTodo(todo.name, {
@@ -1477,7 +1623,8 @@ async function applyBulkMove(): Promise<void> {
       reporter: todo.reporter,
       dueDate: todo.dueDate,
       completed: todo.completed
-    }))
+    }),
+    { message: `已移动 ${targets.length} 条`, undo: before })
 }
 
 async function removeBulkConfirmed(): Promise<void> {
@@ -1574,6 +1721,7 @@ async function saveRenameModule(): Promise<void> {
 async function toggle(todo: Todo): Promise<void> {
   if (busy.value) return
   busy.value = todo.name
+  const before = captureBefore([todo])
   const payload: TodoPayload = {
     title: todo.title,
     detail: todo.detail,
@@ -1599,6 +1747,8 @@ async function toggle(todo: Todo): Promise<void> {
     const updated = await updateTodo(todo.name, payload)
     const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
     if (updatedIndex >= 0) items.value[updatedIndex] = updated
+    showToast(nextCompleted ? '已完成' : '已恢复为待办',
+      { label: '撤销', run: () => void undoBulk(before) })
   } catch (err) {
     items.value = snapshotItems
     handleError(err)
@@ -1611,6 +1761,7 @@ async function toggle(todo: Todo): Promise<void> {
 async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
   if (busy.value) return
   busy.value = todo.name
+  const before = captureBefore([todo])
   const payload: TodoPayload = {
     title: todo.title,
     detail: todo.detail,
@@ -1636,7 +1787,8 @@ async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
     const updated = await updateTodo(todo.name, payload)
     const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
     if (updatedIndex >= 0) items.value[updatedIndex] = updated
-    showToast(dismissed ? '已标记为不用处理' : '已恢复到待办')
+    showToast(dismissed ? '已标记为不用处理' : '已恢复到待办',
+      { label: '撤销', run: () => void undoBulk(before) })
   } catch (err) {
     items.value = snapshotItems
     handleError(err)
@@ -2433,7 +2585,7 @@ onUnmounted(() => {
             v-if="groupOpenTodos(group).length"
             variant="ghost"
             size="icon"
-            class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
+            class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
             :disabled="bulkBusy"
             :aria-label="`完成 ${group.title} 的全部待办`"
             title="全部完成"
@@ -2447,7 +2599,7 @@ onUnmounted(() => {
           <Button
             variant="ghost"
             size="icon"
-            class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
+            class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
             :disabled="noteBusy !== null"
             :aria-label="`查看 ${group.title} 的关联笔记`"
             title="查看关联笔记"
@@ -2465,7 +2617,7 @@ onUnmounted(() => {
           <Button
             variant="ghost"
             size="icon"
-            class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
+            class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/project:opacity-100 lg:group-focus-within/project:opacity-100"
             :aria-label="`为 ${group.title} 新建笔记`"
             title="新建笔记"
             @click="createNoteHere({ project: group.key })"
@@ -2483,12 +2635,27 @@ onUnmounted(() => {
             v-if="group.key"
             variant="ghost"
             size="icon"
+            class="hidden sm:inline-flex"
             :aria-label="`在 ${group.title} 下添加模块`"
             title="添加模块"
             @click="startAddModule(group.key)"
           >
             <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="shrink-0 sm:hidden"
+            :aria-label="`${group.title} 的更多操作`"
+            title="更多操作"
+            @click="openProjectGroupMenu($event, group)"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="3.5" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="12.5" cy="8" r="1.2" fill="currentColor" />
             </svg>
           </Button>
         </header>
@@ -2616,7 +2783,7 @@ onUnmounted(() => {
                   v-if="groupOpenTodos(moduleGroup).length"
                   variant="ghost"
                   size="icon"
-                  class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
+                  class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
                   :disabled="bulkBusy"
                   :aria-label="`完成 ${moduleGroup.label} 的全部待办`"
                   title="全部完成"
@@ -2630,7 +2797,7 @@ onUnmounted(() => {
                 <Button
                   variant="ghost"
                   size="icon"
-                  class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
+                  class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
                   :disabled="noteBusy !== null"
                   :aria-label="`查看 ${moduleGroup.label} 的关联笔记`"
                   title="查看关联笔记"
@@ -2648,7 +2815,7 @@ onUnmounted(() => {
                 <Button
                   variant="ghost"
                   size="icon"
-                  class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
+                  class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
                   :aria-label="`为 ${moduleGroup.label} 新建笔记`"
                   title="新建笔记"
                   @click="createNoteHere({ project: group.key, module: moduleGroup.key })"
@@ -2666,7 +2833,7 @@ onUnmounted(() => {
                   v-if="group.key"
                   variant="ghost"
                   size="icon"
-                  class="shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
+                  class="hidden shrink-0 transition-opacity duration-200 ease-[var(--ws-ease)] sm:inline-flex lg:opacity-0 lg:group-hover/module:opacity-100 lg:group-focus-within/module:opacity-100"
                   :aria-label="`重命名模块 ${moduleGroup.label}`"
                   title="重命名模块"
                   @click="startRenameModule(group.key, moduleGroup.key)"
@@ -2678,6 +2845,20 @@ onUnmounted(() => {
                       stroke-width="1.4"
                       stroke-linejoin="round"
                     />
+                  </svg>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="shrink-0 sm:hidden"
+                  :aria-label="`${moduleGroup.label} 的更多操作`"
+                  title="更多操作"
+                  @click="openModuleMenu($event, group, moduleGroup)"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="3.5" cy="8" r="1.2" fill="currentColor" />
+                    <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+                    <circle cx="12.5" cy="8" r="1.2" fill="currentColor" />
                   </svg>
                 </Button>
               </template>
@@ -2696,7 +2877,9 @@ onUnmounted(() => {
                 :busy="busy === todo.name"
                 :bulk-busy="bulkBusy"
                 :note-busy="noteBusy !== null"
+                :focused="navTodoName === todo.name"
                 @contextmenu.prevent.stop="openTodoMenu($event, todo)"
+                @menu="openTodoMenu($event, todo)"
                 @select="toggleSelect(todo.name)"
                 @toggle="toggle(todo)"
                 @edit="openEdit(todo)"
@@ -2738,8 +2921,10 @@ onUnmounted(() => {
             :busy="busy === todo.name"
             :bulk-busy="bulkBusy"
             :note-busy="noteBusy !== null"
+            :focused="navTodoName === todo.name"
             :scope="todoScope(todo)"
             @contextmenu.prevent.stop="openTodoMenu($event, todo)"
+            @menu="openTodoMenu($event, todo)"
             @select="toggleSelect(todo.name)"
             @toggle="toggle(todo)"
             @edit="openEdit(todo)"
@@ -2814,6 +2999,7 @@ onUnmounted(() => {
       <span class="ws-pager-total">
         共 {{ displayedTotal }} 条<template v-if="truncated">（仅显示最近 {{ PAGE_SIZE }} 条）</template>
       </span>
+      <span class="ws-nav-hint hidden sm:inline"> · ↑↓/J/K 选择，Enter 打开，X 完成</span>
     </div>
 
     <TodoForm
@@ -2865,10 +3051,6 @@ onUnmounted(() => {
       @close="contextMenu.open = false"
     />
 
-    <div
-      v-if="toast"
-      class="ws-toast fixed bottom-6 left-1/2 z-[1100] -translate-x-1/2 rounded-full border border-white/20 bg-[#1d1d1f]/85 px-4 py-2 text-[12px] font-medium text-white shadow-[0_8px_32px_rgba(0,0,0,0.24)] backdrop-blur-xl dark:bg-white/90 dark:text-[#1d1d1f]"
-      role="status"
-    >{{ toast }}</div>
+    <Toast :message="toast" :action-label="toastAction?.label" @action="triggerToastAction" />
   </div>
 </template>

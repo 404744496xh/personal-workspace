@@ -171,20 +171,31 @@ function matchesFilters(note: NoteSummary): boolean {
   return true
 }
 
-const filteredNotes = computed(() => {
-  const needle = keyword.value.trim().toLowerCase()
-  return sortedNotes.value.filter((note) => {
-    if (!matchesFilters(note)) return false
-    if (!needle) return true
-    const haystack = [
-      note.title,
-      note.excerpt,
-      projectTitleOf(note.project),
-      note.module ?? '',
-      ...note.todos.map(todoTitleOf)
-    ].join(' ').toLowerCase()
-    return haystack.includes(needle)
-  })
+const filteredNotes = computed(() =>
+  sortedNotes.value.filter((note) => matchesFilters(note)))
+
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+let searchSeq = 0
+
+async function searchNotes(): Promise<void> {
+  const seq = ++searchSeq
+  const term = keyword.value.trim()
+  try {
+    const noteList = await listNotes(term || undefined)
+    if (seq !== searchSeq) return
+    notes.value = noteList
+    if (!term) writeCache('notes', noteList)
+  } catch (err) {
+    if (seq !== searchSeq) return
+    handleError(err)
+  }
+}
+
+watch(keyword, () => {
+  if (searchTimer) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => {
+    void searchNotes()
+  }, 250)
 })
 
 watch(projectFilter, () => {
@@ -226,7 +237,7 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   error.value = ''
   try {
     const [noteList, projectList, todoList, templateResponse] = await Promise.all([
-      listNotes(),
+      listNotes(keyword.value.trim() || undefined),
       listProjects(),
       listTodos({ size: 500 }),
       listNoteTemplates().catch(() => null)
@@ -463,6 +474,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (searchTimer) window.clearTimeout(searchTimer)
   document.removeEventListener('mousedown', closeTodoMenu)
   window.removeEventListener('keydown', closeTodoMenuOnEscape)
 })

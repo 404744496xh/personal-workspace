@@ -161,8 +161,9 @@ export function deleteCommand(name: string): Promise<void> {
   })
 }
 
-export function listNotes(): Promise<NoteSummary[]> {
-  return request('/notes')
+export function listNotes(keyword?: string): Promise<NoteSummary[]> {
+  const term = keyword?.trim()
+  return request(term ? `/notes?keyword=${encodeURIComponent(term)}` : '/notes')
 }
 
 export function getNote(name: string): Promise<Note> {
