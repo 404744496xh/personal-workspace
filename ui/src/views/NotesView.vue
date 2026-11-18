@@ -305,6 +305,7 @@ function openEdit(note: NoteSummary): void {
   void getNote(note.name)
     .then((full) => {
       createDefaults.value = {}
+      if (full.summary) summarySource.set(full.name, full.content)
       editing.value = full
       editorOpen.value = true
     })
@@ -347,10 +348,12 @@ async function persist(payload: NotePayload): Promise<boolean> {
       const index = notes.value.findIndex((item) => item.name === updated.name)
       if (index >= 0) notes.value[index] = toSummary(updated)
       editing.value = updated
+      scheduleAutoSummary(updated)
     } else {
       const created = await createNote(payload)
       notes.value = [toSummary(created), ...notes.value]
       editing.value = created
+      scheduleAutoSummary(created)
     }
     writeCache('notes', notes.value)
     return true
@@ -432,25 +435,75 @@ async function exportNoteMarkdown(note: NoteSummary): Promise<void> {
 }
 
 const summaryBusy = ref<string | null>(null)
+// 记录生成摘要时使用的正文，用于判断编辑后是否需要自动更新
+const summarySource = new Map<string, string>()
+const autoTimers = new Map<string, number>()
+const lastAutoAttempt = new Map<string, number>()
+const AUTO_SUMMARY_IDLE_MS = 30_000
+const AUTO_SUMMARY_COOLDOWN_MS = 2 * 60_000
+
+function applySummary(name: string, summary: string, content: string): void {
+  summarySource.set(name, content)
+  lastAutoAttempt.set(name, Date.now())
+  notes.value = notes.value.map((item) => item.name === name ? { ...item, summary } : item)
+}
+
+function scheduleAutoSummary(note: Note): void {
+  if (!note.content.trim()) return
+  window.clearTimeout(autoTimers.get(note.name))
+  autoTimers.set(note.name, window.setTimeout(() => {
+    autoTimers.delete(note.name)
+    void autoSummarize(note.name)
+  }, AUTO_SUMMARY_IDLE_MS))
+}
+
+async function autoSummarize(name: string): Promise<void> {
+  if (summaryBusy.value) {
+    autoTimers.set(name, window.setTimeout(() => {
+      autoTimers.delete(name)
+      void autoSummarize(name)
+    }, 15_000))
+    return
+  }
+  if (Date.now() - (lastAutoAttempt.get(name) ?? 0) < AUTO_SUMMARY_COOLDOWN_MS) {
+    const wait = AUTO_SUMMARY_COOLDOWN_MS - (Date.now() - (lastAutoAttempt.get(name) ?? 0))
+    autoTimers.set(name, window.setTimeout(() => {
+      autoTimers.delete(name)
+      void autoSummarize(name)
+    }, wait + 1000))
+    return
+  }
+  try {
+    const full = await getNote(name)
+    if (!full.content.trim()) return
+    if (full.summary && summarySource.get(name) === full.content) return
+    lastAutoAttempt.set(name, Date.now())
+    summaryBusy.value = name
+    const result = await generateNoteSummary({
+      title: full.title,
+      content: full.content,
+      note: name
+    })
+    applySummary(name, result.summary, full.content)
+  } catch {
+    // 自动生成失败保持静默，等下次编辑或手动生成
+  } finally {
+    if (summaryBusy.value === name) summaryBusy.value = null
+  }
+}
 
 async function generateSummaryFor(note: NoteSummary): Promise<void> {
   if (summaryBusy.value) return
   summaryBusy.value = note.name
   try {
+    window.clearTimeout(autoTimers.get(note.name))
     const full = await getNote(note.name)
-    const result = await generateNoteSummary({ title: full.title, content: full.content })
-    const updated = await updateNote(note.name, {
+    const result = await generateNoteSummary({
       title: full.title,
       content: full.content,
-      summary: result.summary,
-      tags: full.tags,
-      project: full.project,
-      module: full.module,
-      todos: full.todos
+      note: note.name
     })
-    notes.value = notes.value.map((item) => item.name === note.name
-      ? { ...item, title: updated.title, summary: updated.summary ?? result.summary }
-      : item)
+    applySummary(note.name, result.summary, full.content)
     show('已生成 AI 摘要')
   } catch (err) {
     handleError(err)
@@ -468,19 +521,13 @@ async function generateSummaryFromEditor(payload: { title: string; content: stri
   if (summaryBusy.value) return
   summaryBusy.value = note.name
   try {
-    const result = await generateNoteSummary(payload)
-    const updated = await updateNote(note.name, {
+    window.clearTimeout(autoTimers.get(note.name))
+    const result = await generateNoteSummary({
       title: payload.title || note.title,
       content: payload.content,
-      summary: result.summary,
-      tags: note.tags,
-      project: note.project,
-      module: note.module,
-      todos: note.todos
+      note: note.name
     })
-    notes.value = notes.value.map((item) => item.name === note.name
-      ? { ...item, title: updated.title, summary: updated.summary ?? result.summary }
-      : item)
+    applySummary(note.name, result.summary, payload.content)
     show('已生成 AI 摘要')
   } catch (err) {
     handleError(err)

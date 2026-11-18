@@ -285,6 +285,18 @@ public class WorkspaceDataAccess {
             .then();
     }
 
+    // 只更新摘要，不碰正文与更新时间，避免生成期间用户的编辑被旧内容覆盖
+    public Mono<WorkspaceNote> updateNoteSummary(String owner, String name, String summary) {
+        return getNote(owner, name)
+            .flatMap(note -> {
+                var text = summary == null ? "" : summary.trim();
+                note.getSpec().setSummary(
+                    text.isEmpty() ? null : text.substring(0, Math.min(text.length(), 1000)));
+                return client.update(note);
+            })
+            .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
+    }
+
     public Mono<List<SearchHit>> search(String owner, String keyword) {
         var needle = keyword.toLowerCase(Locale.ROOT);
         if (needle.isEmpty()) {

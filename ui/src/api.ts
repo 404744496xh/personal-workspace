@@ -257,7 +257,7 @@ function noteTemplateRequest<T>(init: RequestInit = {}): Promise<T> {
 }
 
 export function generateNoteSummary(
-  payload: { title?: string; content: string }
+  payload: { title?: string; content: string; note?: string }
 ): Promise<{ summary: string }> {
   return pageRequest('/workspace/api/note-summary', {
     method: 'POST',

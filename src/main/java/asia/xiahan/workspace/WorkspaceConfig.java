@@ -47,11 +47,12 @@ public class WorkspaceConfig {
 
     @Bean
     public RouterFunction<ServerResponse> workspaceAiRouter(CurrentUser currentUser,
-        AiImportService aiImportService, NoteTemplateService noteTemplateService) {
+        AiImportService aiImportService, NoteTemplateService noteTemplateService,
+        WorkspaceDataAccess dataAccess) {
         return RouterFunctions.route()
             .POST("/workspace/api/ai-import", request -> aiImport(request, currentUser, aiImportService))
             .POST("/workspace/api/note-summary",
-                request -> noteSummary(request, currentUser, aiImportService))
+                request -> noteSummary(request, currentUser, aiImportService, dataAccess))
             .GET("/workspace/api/note-templates",
                 request -> noteTemplates(currentUser, noteTemplateService))
             .PUT("/workspace/api/note-templates",
@@ -116,7 +117,7 @@ public class WorkspaceConfig {
     }
 
     private static Mono<ServerResponse> noteSummary(ServerRequest request,
-        CurrentUser currentUser, AiImportService aiImportService) {
+        CurrentUser currentUser, AiImportService aiImportService, WorkspaceDataAccess dataAccess) {
         return currentUser.findUsername()
             .switchIfEmpty(Mono.error(ApiException.unauthorized()))
             .flatMap(username -> request.bodyToMono(NoteSummaryRequest.class)
@@ -130,14 +131,17 @@ public class WorkspaceConfig {
                         return Mono.error(ApiException.badRequest("笔记内容过长，无法生成摘要"));
                     }
                     var title = body.title() == null ? "" : body.title().trim();
-                    return aiImportService.chat(NOTE_SUMMARY_PROMPT,
-                        summaryInput(title, content));
+                    var noteName = body.note() == null ? "" : body.note().trim();
+                    return aiImportService.chat(NOTE_SUMMARY_PROMPT, summaryInput(title, content))
+                        .map(String::trim)
+                        .flatMap(summary -> summary.isBlank()
+                            ? Mono.error(new ApiException(HttpStatus.BAD_GATEWAY, "AI_EMPTY",
+                                "AI 没有返回摘要，请重试"))
+                            : noteName.isEmpty()
+                                ? Mono.just(summary)
+                                : dataAccess.updateNoteSummary(username, noteName, summary)
+                                    .thenReturn(summary));
                 })
-                .map(String::trim)
-                .flatMap(summary -> summary.isBlank()
-                    ? Mono.error(new ApiException(HttpStatus.BAD_GATEWAY, "AI_EMPTY",
-                        "AI 没有返回摘要，请重试"))
-                    : Mono.just(summary))
                 .map(NoteSummaryResult::new)
                 .flatMap(WorkspaceConfig::okJson))
             .onErrorResume(ApiException.class, WorkspaceConfig::errorResponse)
