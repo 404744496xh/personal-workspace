@@ -31,6 +31,7 @@ import type { ContextMenuItem } from '../contextMenu'
 import { toolsCollapsed } from '../collapse'
 import { readCache, writeCache } from '../cache'
 import { DEFAULT_NOTE_TEMPLATES } from '../noteTemplates'
+import { preloadMermaidScript } from '../mermaidTheme'
 
 const cachedNotes = readCache<NoteSummary[]>('notes')
 const cachedProjects = readCache<Project[]>('projects')
@@ -607,6 +608,7 @@ function closeTodoMenuOnEscape(event: KeyboardEvent): void {
 
 onMounted(() => {
   void load({ silent: Boolean(cachedNotes) })
+  preloadMermaidScript()
   document.addEventListener('mousedown', closeTodoMenu)
   window.addEventListener('keydown', closeTodoMenuOnEscape)
 })

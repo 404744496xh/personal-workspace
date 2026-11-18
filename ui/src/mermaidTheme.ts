@@ -198,3 +198,17 @@ export function applyMermaidTheme(): void {
     }
   })
 }
+
+// Vditor 要等首个 mermaid 代码块出现才加载 3.5MB 的脚本；进入笔记视图先预热，
+// 地址与 Vditor 内部 addScript 的 URL 保持一致才能命中同一份缓存。
+const MERMAID_SCRIPT = '/plugins/personal-workspace/assets/vditor/dist/js/mermaid/mermaid.min.js?v=11.17.2'
+
+export function preloadMermaidScript(): void {
+  if (document.querySelector('link[data-ws-mermaid-preload]')) return
+  const link = document.createElement('link')
+  link.rel = 'preload'
+  link.as = 'script'
+  link.href = MERMAID_SCRIPT
+  link.dataset.wsMermaidPreload = '1'
+  document.head.appendChild(link)
+}

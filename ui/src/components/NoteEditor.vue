@@ -299,8 +299,15 @@ async function handleUpload(files: File[]): Promise<string | null> {
   for (const file of files) {
     uploading.value += 1
     try {
-      const { url } = await uploadImage(file)
-      const label = file.name.replace(/[[\]]/g, '')
+      // 站点附件对 SVG 的 MIME 支持不一致，且内联 SVG 有脚本风险，统一栅格化成 PNG
+      let upload = file
+      if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)) {
+        const png = await rasterizeSvg(await file.text(), file.name || 'pasted.svg')
+        if (!png) return 'SVG 图片解析失败，请导出为 PNG 后重试'
+        upload = png
+      }
+      const { url } = await uploadImage(upload)
+      const label = upload.name.replace(/[[\]]/g, '')
       vditor.value?.insertValue(`![${label}](${url})\n`)
     } catch (err) {
       return messageOf(err)
@@ -309,6 +316,106 @@ async function handleUpload(files: File[]): Promise<string | null> {
     }
   }
   return null
+}
+
+async function rasterizeSvg(markup: string, name: string): Promise<File | null> {
+  const openTag = /<svg\b[^>]*>/i.exec(markup)?.[0]
+  if (!openTag) return null
+  const viewBox = /viewBox="([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"/i.exec(openTag)
+  const width = Number(viewBox?.[3]) || 800
+  const height = Number(viewBox?.[4]) || 600
+  let attrs = ''
+  if (!/\swidth\s*=/.test(openTag)) attrs += ` width="${width}"`
+  if (!/\sheight\s*=/.test(openTag)) attrs += ` height="${height}"`
+  const sized = attrs ? markup.replace(openTag, openTag.replace('<svg', `<svg${attrs}`)) : markup
+  const blob = new Blob([sized], { type: 'image/svg+xml' })
+  const objectUrl = URL.createObjectURL(blob)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image()
+      element.onload = () => resolve(element)
+      element.onerror = () => reject(new Error('svg load failed'))
+      element.src = objectUrl
+    })
+    const sourceWidth = image.naturalWidth || width
+    const sourceHeight = image.naturalHeight || height
+    const scale = Math.min(2, Math.max(1, 1400 / Math.max(sourceWidth, sourceHeight)))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(sourceWidth * scale)
+    canvas.height = Math.round(sourceHeight * scale)
+    canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!png) return null
+    return new File([png], name.replace(/\.svg$/i, '') + '.png', { type: 'image/png' })
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+async function dataUriFile(src: string, index: number): Promise<File | null> {
+  try {
+    const blob = await (await fetch(src)).blob()
+    const ext = blob.type === 'image/svg+xml'
+      ? 'svg' : (blob.type.split('/')[1] || 'png')
+    return new File([blob], `pasted-${index + 1}.${ext}`, { type: blob.type })
+  } catch {
+    return null
+  }
+}
+
+// 富文本来源的 SVG 可能以 data URI 或内联标记出现，Vditor 的 HTML 分支会把它丢成 ![]()
+function dataImageUris(html: string): string[] {
+  if (!html) return []
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return [...doc.querySelectorAll('img[src]')]
+    .map((img) => img.getAttribute('src') ?? '')
+    .filter((src) => src.startsWith('data:image/'))
+}
+
+function inlineSvgMarkup(html: string): string | null {
+  if (!html) return null
+  const svg = new DOMParser().parseFromString(html, 'text/html').querySelector('svg')
+  return svg ? svg.outerHTML : null
+}
+
+// Vditor 粘贴时只要剪贴板带 HTML 就优先走 HTML 分支、忽略图片文件，
+// 富文本来源（网页复制图片、部分截图工具）会因此插入 ![]() 或失效的外链。
+// 判定必须同步完成，否则 Vditor 的内联监听会先一步把 HTML 插进编辑器。
+async function onEditorPaste(event: ClipboardEvent): Promise<void> {
+  const data = event.clipboardData
+  if (!data) return
+  const files = [...data.files].filter(
+    (file) => file.type.startsWith('image/') || /\.svg$/i.test(file.name))
+  let uris: string[] = []
+  let markup: string | null = null
+  if (!files.length) {
+    uris = dataImageUris(data.getData('text/html'))
+    if (!uris.length) {
+      markup = inlineSvgMarkup(data.getData('text/html'))
+      const plain = data.getData('text/plain').trim()
+      if (!markup && /^<svg[\s>]/i.test(plain)) markup = plain
+    }
+    if (!uris.length && !markup) return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  let targets = files
+  if (!targets.length) {
+    if (markup) {
+      targets = [new File([markup], 'pasted.svg', { type: 'image/svg+xml' })]
+    } else {
+      const loaded = await Promise.all(uris.map((src, index) => dataUriFile(src, index)))
+      targets = loaded.filter((file): file is File => file !== null)
+    }
+  }
+  if (!targets.length) {
+    vditor.value?.tip('剪贴板图片解析失败')
+    return
+  }
+  const error = await handleUpload(targets)
+  if (error) vditor.value?.tip(error)
 }
 
 interface EditorPayload extends NotePayload {
@@ -494,6 +601,7 @@ onMounted(async () => {
   })
 
   window.addEventListener('keydown', onWindowKeydown, true)
+  editorEl.value?.addEventListener('paste', onEditorPaste, true)
   const root = document.getElementById('workspace-app')
   if (root) {
     themeObserver = new MutationObserver(applyTheme)
@@ -517,6 +625,7 @@ onBeforeUnmount(() => {
   window.clearTimeout(flyoutTimer)
   window.clearTimeout(inlineHtmlTimer)
   window.removeEventListener('keydown', onWindowKeydown, true)
+  editorEl.value?.removeEventListener('paste', onEditorPaste, true)
   themeObserver?.disconnect()
   vditor.value?.destroy()
   vditor.value = undefined
