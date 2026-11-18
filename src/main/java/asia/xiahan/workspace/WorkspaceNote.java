@@ -42,6 +42,9 @@ public class WorkspaceNote extends AbstractExtension {
         @Schema(description = "Markdown content, may reference site attachment URLs", maxLength = 200000)
         private String content;
 
+        @Schema(description = "AI generated summary shown on note cards", maxLength = 1000)
+        private String summary;
+
         @Schema(description = "Last update time in ISO-8601, written by the server", maxLength = 40)
         private String updatedAt;
 
@@ -79,6 +82,14 @@ public class WorkspaceNote extends AbstractExtension {
 
         public void setContent(String content) {
             this.content = content;
+        }
+
+        public String getSummary() {
+            return summary;
+        }
+
+        public void setSummary(String summary) {
+            this.summary = summary;
         }
 
         public String getUpdatedAt() {

@@ -16,6 +16,7 @@ const props = defineProps<{
   todos: Todo[]
   templates: NoteTemplate[]
   saving: boolean
+  summaryBusy?: boolean
   persist: (payload: NotePayload) => Promise<boolean>
   defaultProject?: string
   defaultModule?: string
@@ -25,6 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   manageTemplates: []
+  summary: [payload: { title: string; content: string }]
 }>()
 
 const CDN = '/plugins/personal-workspace/assets/vditor'
@@ -573,6 +575,13 @@ onBeforeUnmount(() => {
         <span v-else-if="autoStatus" class="text-[12px] text-[#6e6e73] dark:text-[#98989d]" role="status">
           {{ autoStatus }}
         </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="ws-note-summary"
+          :disabled="summaryBusy || !content.trim()"
+          @click="emit('summary', { title: title.trim(), content })"
+        >{{ summaryBusy ? '摘要生成中…' : 'AI 摘要' }}</Button>
         <Button
           variant="primary"
           size="sm"

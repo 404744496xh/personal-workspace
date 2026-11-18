@@ -78,6 +78,7 @@ export interface Note {
   name: string
   title: string
   content: string
+  summary: string | null
   tags: string[]
   project: string | null
   module: string | null
@@ -89,6 +90,7 @@ export interface NoteSummary {
   name: string
   title: string
   excerpt: string
+  summary: string | null
   tags: string[]
   project: string | null
   module: string | null
@@ -99,6 +101,7 @@ export interface NoteSummary {
 export interface NotePayload {
   title: string
   content: string
+  summary?: string | null
   tags?: string[]
   project?: string | null
   module?: string | null
@@ -189,6 +192,7 @@ export interface BackupCommand {
 export interface BackupNote {
   title: string
   content: string | null
+  summary: string | null
   tags: string[] | null
   project: string | null
   module: string | null

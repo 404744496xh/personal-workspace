@@ -223,13 +223,13 @@ function workspaceCsrfToken(): string {
   return document.getElementById('workspace-app')?.dataset.csrf ?? ''
 }
 
-async function noteTemplateRequest<T>(init: RequestInit = {}): Promise<T> {
+async function pageRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   const token = workspaceCsrfToken()
   if (token) headers.set('X-XSRF-TOKEN', token)
   if (init.body != null) headers.set('Content-Type', 'application/json')
-  const response = await fetch('/workspace/api/note-templates', {
+  const response = await fetch(path, {
     ...init,
     credentials: 'same-origin',
     headers
@@ -250,6 +250,19 @@ async function noteTemplateRequest<T>(init: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, code, message)
   }
   return response.json() as Promise<T>
+}
+
+function noteTemplateRequest<T>(init: RequestInit = {}): Promise<T> {
+  return pageRequest('/workspace/api/note-templates', init)
+}
+
+export function generateNoteSummary(
+  payload: { title?: string; content: string }
+): Promise<{ summary: string }> {
+  return pageRequest('/workspace/api/note-summary', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
 }
 
 export function listNoteTemplates(): Promise<NoteTemplateResponse> {

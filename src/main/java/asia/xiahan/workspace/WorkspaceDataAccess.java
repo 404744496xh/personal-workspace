@@ -393,6 +393,7 @@ public class WorkspaceDataAccess {
                     .map(note -> new BackupPayload.BackupNote(
                         note.getSpec().getTitle(),
                         note.getSpec().getContent(),
+                        note.getSpec().getSummary(),
                         nullSafe(note.getSpec().getTags()),
                         note.getSpec().getProject(),
                         note.getSpec().getModule(),
@@ -474,6 +475,7 @@ public class WorkspaceDataAccess {
             spec.setOwner(owner);
             spec.setTitle(source.title().trim());
             spec.setContent(source.content() == null ? "" : source.content());
+            spec.setSummary(trimToNull(source.summary()));
             spec.setTags(normalizeTags(source.tags()));
             var noteProjectName = trimToNull(source.project());
             var mappedNoteProject = noteProjectName == null
@@ -562,6 +564,9 @@ public class WorkspaceDataAccess {
     private static void applyNote(WorkspaceNote.Spec spec, NoteUpsertRequest request) {
         spec.setTitle(request.title().trim());
         spec.setContent(request.content() == null ? "" : request.content());
+        if (request.summary() != null) {
+            spec.setSummary(trimToNull(request.summary()));
+        }
         spec.setTags(normalizeTags(request.tags()));
         spec.setProject(normalizeProject(request.project()));
         spec.setModule(normalizeModule(request.project(), request.module()));

@@ -4,6 +4,7 @@ import {
   ApiError,
   createNote,
   deleteNote,
+  generateNoteSummary,
   getNote,
   listNoteTemplates,
   listNotes,
@@ -318,6 +319,7 @@ function toSummary(note: Note): NoteSummary {
     name: note.name,
     title: note.title,
     excerpt: excerpt(note.content, 220),
+    summary: note.summary,
     tags: note.tags,
     project: note.project,
     module: note.module,
@@ -429,6 +431,64 @@ async function exportNoteMarkdown(note: NoteSummary): Promise<void> {
   }
 }
 
+const summaryBusy = ref<string | null>(null)
+
+async function generateSummaryFor(note: NoteSummary): Promise<void> {
+  if (summaryBusy.value) return
+  summaryBusy.value = note.name
+  try {
+    const full = await getNote(note.name)
+    const result = await generateNoteSummary({ title: full.title, content: full.content })
+    const updated = await updateNote(note.name, {
+      title: full.title,
+      content: full.content,
+      summary: result.summary,
+      tags: full.tags,
+      project: full.project,
+      module: full.module,
+      todos: full.todos
+    })
+    notes.value = notes.value.map((item) => item.name === note.name
+      ? { ...item, title: updated.title, summary: updated.summary ?? result.summary }
+      : item)
+    show('已生成 AI 摘要')
+  } catch (err) {
+    handleError(err)
+  } finally {
+    summaryBusy.value = null
+  }
+}
+
+async function generateSummaryFromEditor(payload: { title: string; content: string }): Promise<void> {
+  const note = editing.value
+  if (!note?.name) {
+    show('请先保存笔记，再生成摘要')
+    return
+  }
+  if (summaryBusy.value) return
+  summaryBusy.value = note.name
+  try {
+    const result = await generateNoteSummary(payload)
+    const updated = await updateNote(note.name, {
+      title: payload.title || note.title,
+      content: payload.content,
+      summary: result.summary,
+      tags: note.tags,
+      project: note.project,
+      module: note.module,
+      todos: note.todos
+    })
+    notes.value = notes.value.map((item) => item.name === note.name
+      ? { ...item, title: updated.title, summary: updated.summary ?? result.summary }
+      : item)
+    show('已生成 AI 摘要')
+  } catch (err) {
+    handleError(err)
+  } finally {
+    summaryBusy.value = null
+  }
+}
+
 function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
   const items: ContextMenuItem[] = [
     { label: '打开编辑', icon: 'edit', onSelect: () => openEdit(note) },
@@ -445,6 +505,12 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
     label: '导出 Markdown',
     icon: 'download',
     onSelect: () => void exportNoteMarkdown(note)
+  })
+  items.push({
+    label: note.summary ? '重新生成 AI 摘要' : 'AI 生成摘要',
+    icon: 'sparkle',
+    disabled: summaryBusy.value !== null,
+    onSelect: () => void generateSummaryFor(note)
   })
   const hasTargets = Boolean(
     (note.project && projectTitleOf(note.project)) || note.module || note.todos.length)
@@ -521,12 +587,14 @@ onUnmounted(() => {
       :todos="todos"
       :templates="noteTemplates"
       :saving="saving"
+      :summary-busy="summaryBusy !== null"
       :persist="persist"
       :default-project="createDefaults.project"
       :default-module="createDefaults.module"
       :default-todo="createDefaults.todo"
       @close="closeEditor"
       @manage-templates="templatesOpen = true"
+      @summary="generateSummaryFromEditor"
     />
 
     <template v-else>
@@ -690,7 +758,13 @@ onUnmounted(() => {
         </header>
 
         <p class="line-clamp-4 min-h-[64px] text-[13px] leading-relaxed text-[#6e6e73] dark:text-[#98989d]">
-          {{ note.excerpt || '空白笔记' }}
+          <template v-if="summaryBusy === note.name">AI 摘要生成中…</template>
+          <template v-else-if="note.summary">
+            <span
+              class="ws-ai-summary-tag mr-1.5 inline-flex items-center rounded-full bg-[#007AFF]/[0.10] px-1.5 py-0.5 align-[1px] text-[10px] font-medium text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]"
+            >AI 摘要</span>{{ note.summary }}
+          </template>
+          <template v-else>{{ note.excerpt || '空白笔记' }}</template>
         </p>
 
         <div

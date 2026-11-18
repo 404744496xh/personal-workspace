@@ -2,6 +2,8 @@ package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.AiImportRequest;
 import asia.xiahan.workspace.dto.AiImportResponse;
+import asia.xiahan.workspace.dto.NoteSummaryRequest;
+import asia.xiahan.workspace.dto.NoteSummaryResult;
 import asia.xiahan.workspace.dto.NoteTemplateRequest;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -34,6 +36,13 @@ public class WorkspaceConfig {
     private static final String DEFAULT_COLLAPSE_SHORTCUT = "z+d+v";
     private static final String DEFAULT_QUICK_TODO_SHORTCUT = "n+t";
     private static final String DEFAULT_SEARCH_SHORTCUT = "s+s";
+    private static final int SUMMARY_INPUT_LIMIT = 12000;
+    private static final String NOTE_SUMMARY_PROMPT = """
+        你是个人知识库的摘要助手。请用中文概括这篇笔记的核心内容：
+        1. 2-4 句话，最多 150 字；
+        2. 只使用给定内容，不要编造；
+        3. 直接输出摘要正文，不要标题、列表、代码块或 Markdown 标记。
+        """;
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
 
     @Bean
@@ -41,6 +50,8 @@ public class WorkspaceConfig {
         AiImportService aiImportService, NoteTemplateService noteTemplateService) {
         return RouterFunctions.route()
             .POST("/workspace/api/ai-import", request -> aiImport(request, currentUser, aiImportService))
+            .POST("/workspace/api/note-summary",
+                request -> noteSummary(request, currentUser, aiImportService))
             .GET("/workspace/api/note-templates",
                 request -> noteTemplates(currentUser, noteTemplateService))
             .PUT("/workspace/api/note-templates",
@@ -102,6 +113,45 @@ public class WorkspaceConfig {
             .onErrorResume(ApiException.class, error -> errorResponse(error))
             .onErrorResume(error -> errorResponse(new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR", "服务暂时不可用，请稍后重试")));
+    }
+
+    private static Mono<ServerResponse> noteSummary(ServerRequest request,
+        CurrentUser currentUser, AiImportService aiImportService) {
+        return currentUser.findUsername()
+            .switchIfEmpty(Mono.error(ApiException.unauthorized()))
+            .flatMap(username -> request.bodyToMono(NoteSummaryRequest.class)
+                .switchIfEmpty(Mono.error(ApiException.badRequest("请求体为空")))
+                .flatMap(body -> {
+                    var content = body.content() == null ? "" : body.content().trim();
+                    if (content.isBlank()) {
+                        return Mono.error(ApiException.badRequest("笔记内容为空，无法生成摘要"));
+                    }
+                    if (content.length() > 200000) {
+                        return Mono.error(ApiException.badRequest("笔记内容过长，无法生成摘要"));
+                    }
+                    var title = body.title() == null ? "" : body.title().trim();
+                    return aiImportService.chat(NOTE_SUMMARY_PROMPT,
+                        summaryInput(title, content));
+                })
+                .map(String::trim)
+                .flatMap(summary -> summary.isBlank()
+                    ? Mono.error(new ApiException(HttpStatus.BAD_GATEWAY, "AI_EMPTY",
+                        "AI 没有返回摘要，请重试"))
+                    : Mono.just(summary))
+                .map(NoteSummaryResult::new)
+                .flatMap(WorkspaceConfig::okJson))
+            .onErrorResume(ApiException.class, WorkspaceConfig::errorResponse)
+            .onErrorResume(error -> errorResponse(new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "服务暂时不可用，请稍后重试")));
+    }
+
+    private static String summaryInput(String title, String content) {
+        var text = content;
+        if (text.length() > SUMMARY_INPUT_LIMIT) {
+            text = text.substring(0, 9000) + "\n...\n"
+                + text.substring(text.length() - 3000);
+        }
+        return (title.isEmpty() ? "" : "标题：" + title + "\n\n") + "正文：\n" + text;
     }
 
     private static Mono<ServerResponse> errorResponse(ApiException error) {
