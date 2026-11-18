@@ -23,6 +23,7 @@ export interface Todo {
   completedAt: string | null
   dismissed: boolean
   dismissedAt: string | null
+  pinned: boolean
   createdAt: string | null
 }
 
@@ -43,6 +44,7 @@ export interface TodoPayload {
   dueDate: string | null
   completed: boolean
   dismissed?: boolean
+  pinned?: boolean
   createdAt?: string | null
 }
 
@@ -163,6 +165,7 @@ export interface BackupTodo {
   completedAt: string | null
   dismissed: boolean | null
   dismissedAt: string | null
+  pinned: boolean | null
 }
 
 export interface BackupProject {

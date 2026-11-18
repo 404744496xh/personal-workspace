@@ -24,6 +24,7 @@ const emit = defineEmits<{
   remove: []
   filter: []
   menu: [event: MouseEvent]
+  pin: []
 }>()
 
 function isOverdue(): boolean {
@@ -81,6 +82,16 @@ function isOverdue(): boolean {
             : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
         >{{ todo.title }}</h4>
         <span
+          v-if="todo.pinned"
+          class="ws-pinned-tag shrink-0 text-[#007AFF] dark:text-[#64B5FF]"
+          title="今日聚焦"
+          aria-label="今日聚焦"
+        >
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 2.5l1.7 3.4 3.8.6-2.7 2.6.6 3.7L8 11.1l-3.4 1.7.6-3.7L2.5 6.5l3.8-.6z" />
+          </svg>
+        </span>
+        <span
           v-if="todo.dismissed"
           class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
         >不用处理</span>
@@ -122,6 +133,26 @@ function isOverdue(): boolean {
       class="ws-todo-actions flex shrink-0 items-center self-center transition-opacity duration-200 ease-[var(--ws-ease)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
     >
       <div class="hidden items-center sm:flex">
+      <Button
+        variant="ghost"
+        size="icon"
+        :class="todo.pinned ? 'text-[#007AFF] dark:text-[#64B5FF]' : ''"
+        :aria-label="todo.pinned ? `取消 ${todo.title} 的今日聚焦` : `将 ${todo.title} 加入今日聚焦`"
+        :title="todo.pinned ? '取消聚焦' : '今日聚焦'"
+        @click="emit('pin')"
+      >
+        <svg
+          class="h-4 w-4"
+          viewBox="0 0 16 16"
+          :fill="todo.pinned ? 'currentColor' : 'none'"
+          stroke="currentColor"
+          stroke-width="1.3"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M8 2.5l1.7 3.4 3.8.6-2.7 2.6.6 3.7L8 11.1l-3.4 1.7.6-3.7L2.5 6.5l3.8-.6z" />
+        </svg>
+      </Button>
       <Button
         variant="ghost"
         size="icon"

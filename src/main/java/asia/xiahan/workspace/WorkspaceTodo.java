@@ -76,6 +76,9 @@ public class WorkspaceTodo extends AbstractExtension {
         @Schema(description = "Dismiss time in ISO-8601, written by the server")
         private String dismissedAt;
 
+        @Schema(description = "Whether the todo is pinned for today's focus")
+        private boolean pinned;
+
         @Schema(description = "Custom creation time in ISO-8601; falls back to metadata time")
         private String createdAt;
 
@@ -181,6 +184,14 @@ public class WorkspaceTodo extends AbstractExtension {
 
         public void setDismissedAt(String dismissedAt) {
             this.dismissedAt = dismissedAt;
+        }
+
+        public boolean isPinned() {
+            return pinned;
+        }
+
+        public void setPinned(boolean pinned) {
+            this.pinned = pinned;
         }
 
         public String getCreatedAt() {

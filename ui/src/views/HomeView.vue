@@ -34,7 +34,8 @@ const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const openItems = computed(() => items.value
   .filter((todo) => !todo.completed && !todo.dismissed)
-  .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')))
+  .sort((a, b) => Number(b.pinned) - Number(a.pinned)
+    || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')))
 const inProgress = computed(() => openItems.value.slice(0, ACTIVE_SIZE))
 
 function projectLabel(todo: Todo): string {

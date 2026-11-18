@@ -368,7 +368,8 @@ public class WorkspaceDataAccess {
                         todo.getSpec().isCompleted(),
                         todo.getSpec().getCompletedAt(),
                         todo.getSpec().isDismissed(),
-                        todo.getSpec().getDismissedAt()))
+                        todo.getSpec().getDismissedAt(),
+                        todo.getSpec().isPinned()))
                     .toList();
                 var projects = tuple.getT2().stream()
                     .map(project -> new BackupPayload.BackupProject(
@@ -443,6 +444,7 @@ public class WorkspaceDataAccess {
             spec.setDismissedAt(dismissed && trimToNull(source.dismissedAt()) != null
                 ? parseInstantOrNow(source.dismissedAt())
                 : null);
+            spec.setPinned(Boolean.TRUE.equals(source.pinned()));
             todo.setSpec(spec);
             var oldTodoName = trimToNull(source.name());
             if (oldTodoName != null) {
@@ -612,6 +614,9 @@ public class WorkspaceDataAccess {
                 spec.setDismissed(false);
                 spec.setDismissedAt(null);
             }
+        }
+        if (creating || request.pinned() != null) {
+            spec.setPinned(Boolean.TRUE.equals(request.pinned()));
         }
     }
 

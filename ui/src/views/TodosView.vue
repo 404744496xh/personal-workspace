@@ -286,10 +286,22 @@ const visibleItems = computed(() => {
   })
   return sortTodos(filtered)
 })
-const groups = computed(() =>
-  buildGroups(visibleItems.value, projects.value, activeProject.value, showEmptyGroups.value))
-const orderedVisible = computed(() =>
-  groups.value.flatMap((group) => group.modules.flatMap((module) => module.todos)))
+const focusItems = computed(() => viewMode.value === 'grouped'
+  ? visibleItems.value.filter((todo) => todo.pinned && !todo.completed && !todo.dismissed)
+  : [])
+const groups = computed(() => {
+  if (!focusItems.value.length) {
+    return buildGroups(visibleItems.value, projects.value, activeProject.value, showEmptyGroups.value)
+  }
+  const focused = new Set(focusItems.value.map((todo) => todo.name))
+  return buildGroups(
+    visibleItems.value.filter((todo) => !focused.has(todo.name)),
+    projects.value, activeProject.value, showEmptyGroups.value)
+})
+const orderedVisible = computed(() => [
+  ...focusItems.value,
+  ...groups.value.flatMap((group) => group.modules.flatMap((module) => module.todos))
+])
 const selectedTodos = computed(() =>
   orderedVisible.value.filter((todo) => selected.value.has(todo.name)))
 const allSelected = computed(() =>
@@ -579,6 +591,7 @@ function sortTodos(list: Todo[]): Todo[] {
     return todo.dueDate
   }
   return [...list].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
     if (sortField.value === 'priority') {
       return (PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]) * direction
     }
@@ -1084,11 +1097,14 @@ function handleUndoKeydown(event: KeyboardEvent): boolean {
 const navIndex = ref(-1)
 const navTodos = computed(() => {
   if (viewMode.value === 'flat') return visibleItems.value
-  return groups.value.flatMap((group) => {
-    if (isProjectCollapsed(group.key)) return []
-    return group.modules.flatMap((module) =>
-      isModuleCollapsed(group.key, module.key) ? [] : module.todos)
-  })
+  return [
+    ...focusItems.value,
+    ...groups.value.flatMap((group) => {
+      if (isProjectCollapsed(group.key)) return []
+      return group.modules.flatMap((module) =>
+        isModuleCollapsed(group.key, module.key) ? [] : module.todos)
+    })
+  ]
 })
 const navTodoName = computed(() => navTodos.value[navIndex.value]?.name ?? '')
 
@@ -1299,6 +1315,12 @@ function openTodoMenu(event: MouseEvent, todo: Todo): void {
       disabled,
       onSelect: () => void setDismissed(todo, !todo.dismissed)
     },
+    {
+      label: todo.pinned ? '取消今日聚焦' : '加入今日聚焦',
+      icon: 'pin',
+      disabled,
+      onSelect: () => void togglePin(todo)
+    },
     { divider: true, label: '' },
     {
       label: '新建关联笔记',
@@ -1328,15 +1350,11 @@ function openSelectedTodoMenu(event: MouseEvent): void {
   openContextMenu(event, [
     { label: '标记完成', icon: 'check', disabled, onSelect: bulkComplete },
     { label: '标记不用处理', icon: 'dismiss', disabled, onSelect: bulkDismiss },
-    {
-      label: '移动到项目/模块…',
-      icon: 'move',
-      disabled,
-      onSelect: () => {
-        moveSingle.value = false
-        moveOpen.value = true
-      }
-    },
+    { label: '设为高优先级', disabled, onSelect: () => bulkSetPriority('HIGH') },
+    { label: '设为中优先级', disabled, onSelect: () => bulkSetPriority('MEDIUM') },
+    { label: '设为低优先级', disabled, onSelect: () => bulkSetPriority('LOW') },
+    { divider: true, label: '' },
+    { label: '移动到项目/模块…', icon: 'move', disabled, onSelect: () => { moveSingle.value = false; moveOpen.value = true } },
     {
       label: '删除所选',
       icon: 'trash',
@@ -1475,6 +1493,8 @@ function openEmptyMenu(event: MouseEvent): void {
 interface TodoBefore {
   completed: boolean
   dismissed: boolean
+  pinned: boolean
+  priority: Priority
   project: string | null
   module: string | null
 }
@@ -1483,6 +1503,8 @@ function captureBefore(targets: Todo[]): Map<string, TodoBefore> {
   return new Map(targets.map((todo) => [todo.name, {
     completed: todo.completed,
     dismissed: todo.dismissed,
+    pinned: todo.pinned,
+    priority: todo.priority,
     project: todo.project,
     module: todo.module
   }]))
@@ -1503,13 +1525,14 @@ async function undoBulk(before: Map<string, TodoBefore>): Promise<void> {
       const updated = await updateTodo(name, {
         title: current.title,
         detail: current.detail,
-        priority: current.priority,
+        priority: old.priority,
         project: old.project,
         module: old.module,
         reporter: current.reporter,
         dueDate: current.dueDate,
         completed: old.completed,
-        dismissed: old.dismissed
+        dismissed: old.dismissed,
+        pinned: old.pinned
       })
       const index = items.value.findIndex((todo) => todo.name === name)
       if (index >= 0) items.value[index] = updated
@@ -1579,16 +1602,114 @@ function completeNow(targets: Todo[]): void {
       module: todo.module,
       reporter: todo.reporter,
       dueDate: todo.dueDate,
-      completed: true
+      completed: true,
+      pinned: todo.pinned
     }),
     { message: `已完成 ${targets.length} 条`, undo: before })
 }
 
-function groupTodos(group: ProjectGroup | ModuleGroup): Todo[] {
-  return 'modules' in group ? group.modules.flatMap((module) => module.todos) : group.todos
+async function togglePin(todo: Todo): Promise<void> {
+  if (busy.value) return
+  busy.value = todo.name
+  const before = captureBefore([todo])
+  const nextPinned = !todo.pinned
+  const snapshotItems = items.value.slice()
+  const index = items.value.findIndex((item) => item.name === todo.name)
+  if (index >= 0) items.value[index] = { ...todo, pinned: nextPinned }
+  try {
+    const updated = await updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: todo.priority,
+      project: todo.project,
+      module: todo.module,
+      reporter: todo.reporter,
+      dueDate: todo.dueDate,
+      completed: todo.completed,
+      dismissed: todo.dismissed,
+      pinned: nextPinned
+    })
+    const updatedIndex = items.value.findIndex((item) => item.name === todo.name)
+    if (updatedIndex >= 0) items.value[updatedIndex] = updated
+    showUndoToast(nextPinned ? '已加入今日聚焦' : '已取消聚焦', () => void undoBulk(before))
+  } catch (err) {
+    items.value = snapshotItems
+    handleError(err)
+  } finally {
+    busy.value = null
+    persistCache()
+  }
 }
 
-function groupOpenTodos(group: ProjectGroup | ModuleGroup): Todo[] {
+function bulkSetPriority(value: Priority): void {
+  const targets = selectedTodos.value.filter((todo) => todo.priority !== value)
+  if (!targets.length) {
+    showToast(`所选待办已是${priorityLabel(value)}优先级`)
+    return
+  }
+  const before = captureBefore(targets)
+  void runBulk(targets,
+    (todo) => ({ ...todo, priority: value }),
+    (todo) => updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: value,
+      project: todo.project,
+      module: todo.module,
+      reporter: todo.reporter,
+      dueDate: todo.dueDate,
+      completed: todo.completed,
+      dismissed: todo.dismissed,
+      pinned: todo.pinned
+    }),
+    { message: `已设置 ${targets.length} 条为${priorityLabel(value)}优先级`, undo: before })
+}
+
+function csvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`
+}
+
+function exportTodosCsv(list: Todo[], label: string): void {
+  if (!list.length) {
+    showToast('没有可导出的待办')
+    return
+  }
+  const projectTitle = (name: string | null): string =>
+    name ? (projects.value.find((project) => project.name === name)?.title ?? '') : ''
+  const header = ['状态', '优先级', '聚焦', '项目', '模块', '待办', '详情', '姓名', '创建时间', '完成时间', '截止日期']
+  const rows = list.map((todo) => [
+    todo.completed ? '已完成' : todo.dismissed ? '不用处理' : '未完成',
+    priorityLabel(todo.priority),
+    todo.pinned ? '是' : '',
+    projectTitle(todo.project),
+    todo.module ?? '',
+    todo.title,
+    todo.detail ?? '',
+    todo.reporter ?? '',
+    todo.createdAt ? formatDateTime(todo.createdAt) : '',
+    todo.completedAt ? formatDateTime(todo.completedAt) : '',
+    todo.dueDate ?? ''
+  ])
+  const csv = '\uFEFF' + [header, ...rows]
+    .map((row) => row.map(csvCell).join(',')).join('\r\n')
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+  const anchor = document.createElement('a')
+  const now = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  anchor.href = url
+  anchor.download = `${label}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.csv`
+  anchor.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  showToast(`已导出 ${list.length} 条`)
+}
+
+function exportCurrentViewCsv(): void {
+  exportTodosCsv(viewMode.value === 'flat' ? visibleItems.value : orderedVisible.value, '待办')
+}
+
+function groupTodos(group: ProjectGroup | ModuleGroup): Todo[] {
+  return 'modules' in group ? group.modules.flatMap((module) => module.todos) : group.todos
+}function groupOpenTodos(group: ProjectGroup | ModuleGroup): Todo[] {
   return groupTodos(group).filter((todo) => !todo.completed && !todo.dismissed)
 }
 
@@ -1629,7 +1750,8 @@ function bulkDismiss(): void {
       reporter: todo.reporter,
       dueDate: todo.dueDate,
       completed: false,
-      dismissed: true
+      dismissed: true,
+      pinned: todo.pinned
     }),
     { message: `已标记 ${targets.length} 条不用处理`, undo: before })
 }
@@ -1660,7 +1782,8 @@ async function applyBulkMove(): Promise<void> {
       module: moduleKey,
       reporter: todo.reporter,
       dueDate: todo.dueDate,
-      completed: todo.completed
+      completed: todo.completed,
+      pinned: todo.pinned
     }),
     { message: `已移动 ${targets.length} 条`, undo: before })
 }
@@ -1768,7 +1891,8 @@ async function toggle(todo: Todo): Promise<void> {
     module: todo.module,
     reporter: todo.reporter,
     dueDate: todo.dueDate,
-    completed: !todo.completed
+    completed: !todo.completed,
+    pinned: todo.pinned
   }
   const nextCompleted = !todo.completed
   const nextTodo: Todo = {
@@ -1808,7 +1932,8 @@ async function setDismissed(todo: Todo, dismissed: boolean): Promise<void> {
     reporter: todo.reporter,
     dueDate: todo.dueDate,
     completed: dismissed ? false : todo.completed,
-    dismissed
+    dismissed,
+    pinned: todo.pinned
   }
   const nextTodo: Todo = {
     ...todo,
@@ -2230,6 +2355,20 @@ onUnmounted(() => {
       </Button>
       <div class="ml-auto flex flex-wrap items-center gap-1">
         <Button
+          variant="secondary"
+          size="icon"
+          class="ws-export-csv"
+          :disabled="!visibleItems.length"
+          aria-label="导出当前视图为 CSV"
+          title="导出当前视图 CSV"
+          @click="exportCurrentViewCsv()"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2.5v7M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M3 12.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          </svg>
+        </Button>
+        <Button
           :variant="importOpen ? 'primary' : 'secondary'"
           size="icon"
           class="ws-import-toggle"
@@ -2394,6 +2533,26 @@ onUnmounted(() => {
               class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
               @click="bulkMenuOpen = false; bulkDismiss()"
             >标记不用处理</button>
+            <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; bulkSetPriority('HIGH')"
+            >设为高优先级</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; bulkSetPriority('MEDIUM')"
+            >设为中优先级</button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="bulkMenuOpen = false; bulkSetPriority('LOW')"
+            >设为低优先级</button>
+            <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
             <button
               type="button"
               role="menuitem"
@@ -2464,6 +2623,13 @@ onUnmounted(() => {
               class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
               @click="copySelected(true)"
             >仅复制标题</button>
+            <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-bulk-menu-item flex min-h-11 w-full items-center px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="copyMenuOpen = false; exportTodosCsv(selectedTodos, '待办所选')"
+            >导出所选 CSV</button>
           </div>
         </div>
       </div>
@@ -2517,7 +2683,7 @@ onUnmounted(() => {
 
     <div v-else class="ws-groups flex flex-col gap-4">
       <section
-        v-if="viewMode === 'flat' ? !visibleItems.length : !groups.length"
+        v-if="viewMode === 'flat' ? !visibleItems.length : !groups.length && !focusItems.length"
         class="ws-state ws-empty flex flex-col items-center gap-2 rounded-[18px] border border-white/20 bg-white/[0.6] px-6 py-12 text-center backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/50"
         @contextmenu.prevent.stop="openEmptyMenu($event)"
       >
@@ -2552,6 +2718,45 @@ onUnmounted(() => {
       </section>
 
       <template v-if="viewMode === 'grouped'">
+      <section
+        v-if="focusItems.length"
+        class="ws-focus overflow-hidden rounded-[18px] border border-[#007AFF]/20 bg-[#007AFF]/[0.04] shadow-[0_4px_24px_rgba(0,0,0,0.06)] backdrop-blur-xl saturate-[180%] dark:border-[#64B5FF]/20 dark:bg-[#0A84FF]/[0.06]"
+      >
+        <header class="flex items-center gap-2 px-4 pb-1 pt-3">
+          <svg class="h-4 w-4 text-[#007AFF] dark:text-[#64B5FF]" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 2.5l1.7 3.4 3.8.6-2.7 2.6.6 3.7L8 11.1l-3.4 1.7.6-3.7L2.5 6.5l3.8-.6z" />
+          </svg>
+          <span class="text-[15px] font-semibold tracking-[-0.01em]">今日聚焦</span>
+          <span
+            class="ws-focus-count rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#6e6e73] dark:bg-white/[0.08] dark:text-[#98989d]"
+          >{{ focusItems.length }}</span>
+        </header>
+        <div class="px-2 pb-3 pt-1">
+          <TodoRow
+            v-for="todo in focusItems"
+            :key="`focus-${todo.name}`"
+            :todo="todo"
+            :selecting="selecting"
+            :selected="selected.has(todo.name)"
+            :busy="busy === todo.name"
+            :bulk-busy="bulkBusy"
+            :note-busy="noteBusy !== null"
+            :focused="navTodoName === todo.name"
+            :scope="todoScope(todo)"
+            @contextmenu.prevent.stop="openTodoMenu($event, todo)"
+            @menu="openTodoMenu($event, todo)"
+            @select="toggleSelect(todo.name)"
+            @toggle="toggle(todo)"
+            @edit="openEdit(todo)"
+            @create-note="createNoteHere({ todo: todo.name })"
+            @related-notes="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
+            @dismiss="setDismissed(todo, !todo.dismissed)"
+            @pin="togglePin(todo)"
+            @remove="askDelete(todo)"
+            @filter="filterByScope(todo)"
+          />
+        </div>
+      </section>
       <section
         v-for="group in groups"
         :key="group.key || 'unclassified'"
@@ -2923,6 +3128,7 @@ onUnmounted(() => {
                 @create-note="createNoteHere({ todo: todo.name })"
                 @related-notes="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
                 @dismiss="setDismissed(todo, !todo.dismissed)"
+                @pin="togglePin(todo)"
                 @remove="askDelete(todo)"
               />
               <QuickAddTodo
@@ -2968,6 +3174,7 @@ onUnmounted(() => {
             @create-note="createNoteHere({ todo: todo.name })"
             @related-notes="openRelatedNotes(`t:${todo.name}`, { todo: todo.name })"
             @dismiss="setDismissed(todo, !todo.dismissed)"
+            @pin="togglePin(todo)"
             @remove="askDelete(todo)"
             @filter="filterByScope(todo)"
           />

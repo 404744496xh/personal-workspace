@@ -15,6 +15,7 @@ public record TodoView(
     String completedAt,
     boolean dismissed,
     String dismissedAt,
+    boolean pinned,
     String createdAt
 ) {
 
@@ -37,6 +38,7 @@ public record TodoView(
             spec.getCompletedAt(),
             spec.isDismissed(),
             spec.getDismissedAt(),
+            spec.isPinned(),
             created
         );
     }

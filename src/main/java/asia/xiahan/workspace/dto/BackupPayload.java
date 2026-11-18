@@ -27,7 +27,8 @@ public record BackupPayload(
         Boolean completed,
         @Size(max = 40) String completedAt,
         Boolean dismissed,
-        @Size(max = 40) String dismissedAt
+        @Size(max = 40) String dismissedAt,
+        Boolean pinned
     ) {
     }
 

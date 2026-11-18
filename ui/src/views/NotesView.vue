@@ -409,6 +409,26 @@ function copyFromMenu(text: string, label: string): void {
   })
 }
 
+function safeFileName(title: string): string {
+  return (title.replace(/[\\/:*?"<>|]/g, '_').trim() || 'note').slice(0, 80)
+}
+
+async function exportNoteMarkdown(note: NoteSummary): Promise<void> {
+  try {
+    const full = await getNote(note.name)
+    const url = URL.createObjectURL(
+      new Blob([full.content ?? ''], { type: 'text/markdown;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${safeFileName(note.title)}.md`
+    anchor.click()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    show('已导出 Markdown')
+  } catch (err) {
+    handleError(err)
+  }
+}
+
 function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
   const items: ContextMenuItem[] = [
     { label: '打开编辑', icon: 'edit', onSelect: () => openEdit(note) },
@@ -421,6 +441,11 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
       onSelect: () => copyFromMenu(note.excerpt, '已复制摘要')
     })
   }
+  items.push({
+    label: '导出 Markdown',
+    icon: 'download',
+    onSelect: () => void exportNoteMarkdown(note)
+  })
   const hasTargets = Boolean(
     (note.project && projectTitleOf(note.project)) || note.module || note.todos.length)
   if (hasTargets) items.push({ divider: true, label: '' })
