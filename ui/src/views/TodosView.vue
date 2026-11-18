@@ -132,6 +132,8 @@ const viewMode = ref<TodoViewMode>(
 const sortDir = ref<SortDirection>('desc')
 const sortOpen = ref(false)
 const sortMenuRef = ref<HTMLElement | null>(null)
+const moreOpen = ref(false)
+const moreMenuRef = ref<HTMLElement | null>(null)
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: 'created', label: '创建时间' },
   { value: 'completed', label: '完成时间' },
@@ -214,6 +216,8 @@ const activeFilterCount = computed(() => {
   let count = 0
   if (activeProject.value !== null) count += 1
   if (activeModule.value !== null) count += 1
+  if (status.value !== 'ALL' && status.value !== 'OPEN') count += 1
+  if (priority.value !== '') count += 1
   return count
 })
 const timeFilterTitle = computed(() => {
@@ -1053,6 +1057,7 @@ function handleMenuPointerDown(event: PointerEvent): void {
     timeOpen.value = false
   }
   if (sortOpen.value && !inside(sortMenuRef.value)) sortOpen.value = false
+  if (moreOpen.value && !inside(moreMenuRef.value)) moreOpen.value = false
 }
 
 function handleMenuKeydown(event: KeyboardEvent): void {
@@ -1067,6 +1072,7 @@ function handleMenuKeydown(event: KeyboardEvent): void {
   filterOpen.value = false
   timeOpen.value = false
   sortOpen.value = false
+  moreOpen.value = false
   navIndex.value = -1
 }
 
@@ -1996,7 +2002,7 @@ onUnmounted(() => {
 <template>
   <div class="ws-view">
     <template v-if="!toolsCollapsed">
-    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1">
+    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-2">
       <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
@@ -2138,8 +2144,8 @@ onUnmounted(() => {
           size="icon"
           class="ws-filter-toggle relative"
           :aria-expanded="filterOpen"
-          :aria-label="activeFilterCount ? `项目模块筛选（${activeFilterCount} 项已启用）` : '项目模块筛选'"
-          :title="activeFilterCount ? `项目模块筛选：${activeFilterCount} 项已启用` : '按项目 / 模块筛选'"
+          :aria-label="activeFilterCount ? `筛选（${activeFilterCount} 项已启用）` : '筛选'"
+          :title="activeFilterCount ? `筛选：${activeFilterCount} 项已启用` : '按项目 / 模块 / 状态 / 优先级筛选'"
           @click="filterOpen = !filterOpen"
         >
           <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -2180,6 +2186,24 @@ onUnmounted(() => {
                 class="w-full"
               />
             </div>
+            <div class="ws-filter-field flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">状态</span>
+              <Select v-model="status" class="w-full" aria-label="完成状态">
+                <option value="ALL">全部状态</option>
+                <option value="OPEN">未完成</option>
+                <option value="DONE">已完成</option>
+                <option value="DISMISSED">不用处理</option>
+              </Select>
+            </div>
+            <div class="ws-filter-field flex flex-col gap-1">
+              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">优先级</span>
+              <Select v-model="priority" class="w-full" aria-label="优先级">
+                <option value="">全部优先级</option>
+                <option value="HIGH">高</option>
+                <option value="MEDIUM">中</option>
+                <option value="LOW">低</option>
+              </Select>
+            </div>
           </div>
           <div
             class="mt-3 flex items-center justify-end gap-2 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]"
@@ -2191,18 +2215,6 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <Select v-model="status" class="w-[100px]" aria-label="完成状态">
-        <option value="ALL">全部状态</option>
-        <option value="OPEN">未完成</option>
-        <option value="DONE">已完成</option>
-        <option value="DISMISSED">不用处理</option>
-      </Select>
-      <Select v-model="priority" class="w-[116px]" aria-label="优先级">
-        <option value="">全部优先级</option>
-        <option value="HIGH">高</option>
-        <option value="MEDIUM">中</option>
-        <option value="LOW">低</option>
-      </Select>
       <div
         ref="sortMenuRef"
         class="ws-sort-control relative inline-flex h-11 items-stretch rounded-full border border-black/[0.08] bg-white/80 dark:border-white/10 dark:bg-white/[0.06]"
@@ -2312,75 +2324,46 @@ onUnmounted(() => {
           ></span>
         </Button>
       </div>
-      <Button
-        :variant="showFinished ? 'primary' : 'secondary'"
-        size="icon"
-        :aria-label="showFinished ? '隐藏已完结项目（进度 100%）' : '显示已完结项目（进度 100%）'"
-        :title="showFinished ? '隐藏已完结项目' : '显示已完结项目'"
-        :aria-pressed="showFinished"
-        @click="showFinished = !showFinished"
-      >
-        <svg v-if="showFinished" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
-            stroke="currentColor"
-            stroke-width="1.3"
-          />
-          <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
-        </svg>
-        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
-            stroke="currentColor"
-            stroke-width="1.3"
-          />
-          <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
-          <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-        </svg>
-      </Button>
-      <Button
-        :variant="viewMode === 'flat' ? 'primary' : 'secondary'"
-        size="icon"
-        :aria-label="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
-        :title="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
-        :aria-pressed="viewMode === 'flat'"
-        @click="toggleViewMode"
-      >
-        <svg v-if="viewMode === 'flat'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M3 4.5h10M5.5 8h7.5M5.5 11.5h7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-        </svg>
-        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-        </svg>
-      </Button>
-      <div class="ml-auto flex flex-wrap items-center gap-1">
+      <div class="ml-auto flex items-center gap-2">
         <Button
-          variant="secondary"
+          :variant="showFinished ? 'primary' : 'secondary'"
           size="icon"
-          class="ws-export-csv"
-          :disabled="!visibleItems.length"
-          aria-label="导出当前视图为 CSV"
-          title="导出当前视图 CSV"
-          @click="exportCurrentViewCsv()"
+          :aria-label="showFinished ? '隐藏已完结项目（进度 100%）' : '显示已完结项目（进度 100%）'"
+          :title="showFinished ? '隐藏已完结项目' : '显示已完结项目'"
+          :aria-pressed="showFinished"
+          @click="showFinished = !showFinished"
         >
-          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M8 2.5v7M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M3 12.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          <svg v-if="showFinished" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+            <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+          </svg>
+          <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+            <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+            <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
         </Button>
         <Button
-          :variant="importOpen ? 'primary' : 'secondary'"
+          :variant="viewMode === 'flat' ? 'primary' : 'secondary'"
           size="icon"
-          class="ws-import-toggle"
-          :aria-label="importOpen ? '关闭粘贴导入' : '粘贴导入待办'"
-          :title="importOpen ? '关闭粘贴导入' : '粘贴导入待办（Excel 项目 / 模块 / 待办）'"
-          :aria-pressed="importOpen"
-          @click="importOpen = !importOpen"
+          :aria-label="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
+          :title="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
+          :aria-pressed="viewMode === 'flat'"
+          @click="toggleViewMode"
         >
-          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <rect x="4" y="3" width="8" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" />
-            <path d="M6.5 3V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7V3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
-            <path d="M6 6.5h4M6 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          <svg v-if="viewMode === 'flat'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 4.5h10M5.5 8h7.5M5.5 11.5h7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          </svg>
+          <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
           </svg>
         </Button>
         <Button
@@ -2396,11 +2379,62 @@ onUnmounted(() => {
             <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </Button>
-        <Button variant="primary" @click="openCreate()">
+        <div ref="moreMenuRef" class="relative">
+          <Button
+            :variant="moreOpen ? 'primary' : 'secondary'"
+            size="icon"
+            class="ws-more-toggle"
+            :aria-expanded="moreOpen"
+            aria-haspopup="menu"
+            aria-label="更多操作"
+            title="更多操作"
+            @click="moreOpen = !moreOpen"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="3.2" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="12.8" cy="8" r="1.2" fill="currentColor" />
+            </svg>
+          </Button>
+          <div
+            v-if="moreOpen"
+            class="ws-more-menu absolute right-0 top-full z-40 mt-1 w-[200px] overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+            role="menu"
+            aria-label="更多操作"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              @click="moreOpen = false; importOpen = true"
+            >
+              <svg class="h-4 w-4 shrink-0 text-[#6e6e73] dark:text-[#98989d]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="4" y="3" width="8" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" />
+                <path d="M6.5 3V2.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7V3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                <path d="M6 6.5h4M6 9h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+              </svg>
+              粘贴导入待办
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="ws-export-csv flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] disabled:pointer-events-none disabled:opacity-40 dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+              :disabled="!visibleItems.length"
+              @click="moreOpen = false; exportCurrentViewCsv()"
+            >
+              <svg class="h-4 w-4 shrink-0 text-[#6e6e73] dark:text-[#98989d]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 2.5v7M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M3 12.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              导出当前视图 CSV
+            </button>
+          </div>
+        </div>
+        <Button variant="primary" class="ws-create-todo" aria-label="新建待办" @click="openCreate()">
           <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
           </svg>
-          新建待办
+          <span class="hidden sm:inline">新建待办</span>
         </Button>
       </div>
     </div>
