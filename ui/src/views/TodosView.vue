@@ -175,8 +175,6 @@ const showFinished = ref(
 let jumpApplied = showFinished.value || !todosTarget?.project
 let todoJumpApplied = false
 let createApplied = false
-const filterOpen = ref(false)
-const filterMenuRef = ref<HTMLElement | null>(null)
 const timeOpen = ref(Boolean(todosTarget?.stale))
 const timeMenuRef = ref<HTMLElement | null>(null)
 const timePanelRef = ref<HTMLElement | null>(null)
@@ -212,12 +210,6 @@ const activeView = computed(() => savedViews.value.find(
 const hasNonKeywordFilters = computed(() =>
   (status.value !== 'ALL' && status.value !== 'OPEN') || priority.value !== ''
   || activeProject.value !== null || hasTimeFilters.value)
-const activeFilterCount = computed(() => {
-  let count = 0
-  if (activeProject.value !== null) count += 1
-  if (activeModule.value !== null) count += 1
-  return count
-})
 const timeFilterTitle = computed(() => {
   const parts = [
     hasCreatedFilter.value ? '创建时间' : '',
@@ -309,11 +301,6 @@ const selectedTodos = computed(() =>
 const allSelected = computed(() =>
   orderedVisible.value.length > 0
   && orderedVisible.value.every((todo) => selected.value.has(todo.name)))
-const activeProjectTitle = computed(() => {
-  if (activeProject.value === null) return ''
-  if (activeProject.value === '') return '未分类'
-  return projects.value.find((project) => project.name === activeProject.value)?.title ?? '未分类'
-})
 const moveModules = computed(() =>
   projects.value.find((project) => project.name === moveProject.value)?.modules ?? [])
 const displayedTotal = computed(() =>
@@ -1050,7 +1037,6 @@ function handleMenuPointerDown(event: PointerEvent): void {
   if (bulkMenuOpen.value && !inside(bulkMenuRef.value)) bulkMenuOpen.value = false
   if (copyMenuOpen.value && !inside(copyMenuRef.value)) copyMenuOpen.value = false
   if (viewsOpen.value && !inside(viewMenuRef.value)) viewsOpen.value = false
-  if (filterOpen.value && !inside(filterMenuRef.value)) filterOpen.value = false
   if (timeOpen.value && !inside(timeMenuRef.value) && !inside(timePanelRef.value)) {
     timeOpen.value = false
   }
@@ -1067,7 +1053,6 @@ function handleMenuKeydown(event: KeyboardEvent): void {
   bulkMenuOpen.value = false
   copyMenuOpen.value = false
   viewsOpen.value = false
-  filterOpen.value = false
   timeOpen.value = false
   sortOpen.value = false
   moreOpen.value = false
@@ -2000,7 +1985,7 @@ onUnmounted(() => {
 <template>
   <div class="ws-view">
     <template v-if="!toolsCollapsed">
-    <div class="ws-toolbar mb-4 flex flex-wrap items-center gap-1.5">
+    <div class="ws-toolbar mb-2 flex flex-wrap items-center gap-1.5">
       <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
@@ -2133,65 +2118,6 @@ onUnmounted(() => {
               </svg>
               保存当前筛选…
             </button>
-          </div>
-        </div>
-      </div>
-      <div ref="filterMenuRef" class="relative">
-        <Button
-          :variant="filterOpen ? 'primary' : 'secondary'"
-          size="icon"
-          class="ws-filter-toggle relative"
-          :aria-expanded="filterOpen"
-          :aria-label="activeFilterCount ? `项目模块筛选（${activeFilterCount} 项已启用）` : '项目模块筛选'"
-          :title="activeFilterCount ? `项目模块筛选：${activeFilterCount} 项已启用` : '按项目 / 模块筛选'"
-          @click="filterOpen = !filterOpen"
-        >
-          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path
-              d="M3 3.5h10L9.5 8v4.2l-3-1.5V8L3 3.5z"
-              stroke="currentColor"
-              stroke-width="1.3"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <span
-            v-if="activeFilterCount"
-            class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full"
-            :class="filterOpen ? 'bg-white dark:bg-[#0A0A0C]' : 'bg-[#007AFF] dark:bg-[#0A84FF]'"
-            aria-hidden="true"
-          ></span>
-        </Button>
-        <div
-          v-if="filterOpen"
-          class="ws-filter-panel absolute left-0 top-full z-40 mt-1 w-[360px] max-w-[calc(100vw-3rem)] rounded-xl border border-black/[0.08] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
-        >
-          <div class="grid grid-cols-2 gap-2">
-            <div class="ws-filter-field flex flex-col gap-1">
-              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">项目</span>
-              <SearchSelect
-                v-model="filterProjectModel"
-                :options="filterProjectOptions"
-                aria-label="按项目筛选"
-                class="w-full"
-              />
-            </div>
-            <div class="ws-filter-field flex flex-col gap-1">
-              <span class="text-[11px] font-medium text-[#6e6e73] dark:text-[#98989d]">模块</span>
-              <SearchSelect
-                v-model="filterModuleModel"
-                :options="filterModuleOptions"
-                aria-label="按模块筛选"
-                class="w-full"
-              />
-            </div>
-          </div>
-          <div
-            class="mt-3 flex items-center justify-end gap-2 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]"
-          >
-            <Button v-if="hasFilters" variant="ghost" size="sm" @click="clearAllFilters">
-              清除筛选
-            </Button>
-            <Button size="sm" @click="filterOpen = false">完成</Button>
           </div>
         </div>
       </div>
@@ -2426,6 +2352,30 @@ onUnmounted(() => {
           <span class="hidden sm:inline">新建待办</span>
         </Button>
       </div>
+    </div>
+
+    <div class="ws-scope-bar mb-4 flex flex-wrap items-center gap-2">
+      <SearchSelect
+        v-model="filterProjectModel"
+        :options="filterProjectOptions"
+        aria-label="按项目筛选"
+        class="w-[180px] shrink-0"
+      />
+      <SearchSelect
+        v-model="filterModuleModel"
+        :options="filterModuleOptions"
+        aria-label="按模块筛选"
+        class="w-[156px] shrink-0"
+      />
+      <Button
+        v-if="activeProject !== null || activeModule !== null"
+        variant="ghost"
+        size="sm"
+        class="ws-clear-filters"
+        @click="clearSelection"
+      >
+        清除筛选
+      </Button>
     </div>
 
     <div
@@ -2686,16 +2636,6 @@ onUnmounted(() => {
       </Select>
       <Button variant="primary" size="sm" :disabled="bulkBusy" @click="applyBulkMove">确定</Button>
       <Button variant="ghost" size="sm" :disabled="bulkBusy" @click="cancelMovePanel">取消</Button>
-    </div>
-
-    <div v-if="activeProject !== null" class="ws-filter-bar mb-4 flex flex-wrap items-center gap-2">
-      <span
-        class="ws-filter-text inline-flex min-h-8 items-center rounded-full bg-[#007AFF]/[0.08] px-3 text-[12px] font-medium text-[#007AFF] dark:bg-[#0A84FF]/[0.16] dark:text-[#64B5FF]"
-      >
-        当前筛选：{{ activeProjectTitle }}<template v-if="activeModule !== null">
-          / {{ activeModule || '未分模块' }}</template>
-      </span>
-      <Button variant="ghost" size="sm" @click="clearSelection">清除</Button>
     </div>
 
     <section
