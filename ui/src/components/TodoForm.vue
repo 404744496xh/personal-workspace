@@ -101,7 +101,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <div
     class="ws-modal-overlay fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
-    @click.self="close"
+    @mousedown.self="close"
   >
     <div
       class="ws-modal max-h-[calc(100vh-32px)] w-full max-w-[520px] overflow-y-auto rounded-[18px] border border-white/30 bg-white/[0.92] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)] backdrop-blur-xl saturate-[180%] dark:border-white/10 dark:bg-[#1c1c1e]/[0.92]"

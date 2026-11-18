@@ -104,6 +104,7 @@ const activeModule = ref<string | null>(todosTarget?.module ?? null)
 const formOpen = ref(false)
 const editing = ref<Todo | null>(null)
 const presetCreatedAt = ref('')
+const createScope = ref<{ project: string; module: string } | null>(null)
 const saving = ref(false)
 const pendingDelete = ref<Todo | null>(null)
 const busy = ref<string | null>(null)
@@ -793,13 +794,15 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
   }
 }
 
-function openCreate(createdAt = ''): void {
+function openCreate(createdAt = '', scope?: { project: string; module: string }): void {
   editing.value = null
   presetCreatedAt.value = createdAt
+  createScope.value = scope ?? null
   formOpen.value = true
 }
 function openEdit(todo: Todo): void {
   presetCreatedAt.value = ''
+  createScope.value = null
   editing.value = todo
   formOpen.value = true
 }
@@ -809,6 +812,7 @@ function closeForm(): void {
   formOpen.value = false
   editing.value = null
   presetCreatedAt.value = ''
+  createScope.value = null
 }
 
 function matchedInList(created: Todo): boolean {
@@ -1364,6 +1368,11 @@ function openSelectedTodoMenu(event: MouseEvent): void {
 function openProjectGroupMenu(event: MouseEvent, group: ProjectGroup): void {
   const items: ContextMenuItem[] = [
     {
+      label: '新建待办',
+      icon: 'plus',
+      onSelect: () => openCreate('', { project: group.key, module: '' })
+    },
+    {
       label: '全部完成',
       icon: 'check',
       disabled: !groupOpenTodos(group).length || bulkBusy.value,
@@ -1415,6 +1424,11 @@ function openProjectGroupMenu(event: MouseEvent, group: ProjectGroup): void {
 
 function openModuleMenu(event: MouseEvent, group: ProjectGroup, moduleGroup: ModuleGroup): void {
   const items: ContextMenuItem[] = [
+    {
+      label: '新建待办',
+      icon: 'plus',
+      onSelect: () => openCreate('', { project: group.key, module: moduleGroup.key })
+    },
     {
       label: '全部完成',
       icon: 'check',
@@ -3225,8 +3239,8 @@ onUnmounted(() => {
       :todo="editing"
       :projects="projects"
       :saving="saving"
-      :default-project="activeProject ?? ''"
-      :default-module="activeModule ?? ''"
+      :default-project="createScope ? createScope.project : (activeProject ?? '')"
+      :default-module="createScope ? createScope.module : (activeModule ?? '')"
       :preset-created-at="presetCreatedAt"
       @submit="save"
       @close="closeForm"

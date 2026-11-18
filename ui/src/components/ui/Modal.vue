@@ -26,7 +26,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <div
     class="ws-modal-overlay fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]"
-    @click.self="emit('close')"
+    @mousedown.self="emit('close')"
   >
     <div
       :class="cn(
