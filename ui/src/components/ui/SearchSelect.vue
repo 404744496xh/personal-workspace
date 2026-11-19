@@ -15,6 +15,8 @@ const props = defineProps<{
   placeholder?: string
   ariaLabel?: string
   disabled?: boolean
+  label?: string
+  active?: boolean
   class?: string
 }>()
 
@@ -31,6 +33,27 @@ const filtered = computed(() => {
   if (!needle) return props.options
   return props.options.filter((item) => item.label.toLowerCase().includes(needle))
 })
+
+const rootClasses = computed(() => cn(
+  'relative inline-flex h-11 items-center rounded-full border transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] focus-within:ring-[3px] focus-within:ring-[#007AFF]/15',
+  props.active
+    ? 'border-[#007AFF]/45 bg-[#007AFF]/[0.07] text-[#007AFF] focus-within:border-[#007AFF]/50 dark:border-[#0A84FF]/45 dark:bg-[#0A84FF]/[0.12] dark:text-[#64B5FF]'
+    : 'border-black/[0.08] bg-white/80 text-[#1d1d1f] hover:border-black/[0.14] focus-within:border-[#007AFF]/50 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:hover:border-white/20',
+  props.label ? 'pl-3.5' : '',
+  props.disabled ? 'opacity-40' : '',
+  props.class
+))
+
+const inputClasses = computed(() => cn(
+  'h-full min-w-0 border-0 bg-transparent text-[13px] text-inherit outline-none placeholder:text-current placeholder:opacity-55',
+  props.label ? 'w-auto flex-1 pl-0 pr-8' : 'w-full pl-4 pr-9',
+  props.disabled ? 'cursor-default' : ''
+))
+
+const chevronClasses = computed(() => cn(
+  'pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2',
+  props.active ? 'text-current opacity-70' : 'text-black/30 dark:text-white/30'
+))
 
 function openList(): void {
   if (props.disabled) return
@@ -104,7 +127,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocumentMoused
 </script>
 
 <template>
-  <span ref="root" :class="cn('relative inline-flex', props.class)">
+  <span ref="root" :class="rootClasses">
+    <span
+      v-if="label"
+      class="shrink-0 cursor-text select-none pr-1.5 text-[11px] font-medium leading-none opacity-50"
+      @mousedown.prevent="input?.focus()"
+    >{{ label }}</span>
     <input
       ref="input"
       type="text"
@@ -114,21 +142,14 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocumentMoused
       :aria-expanded="open"
       aria-autocomplete="list"
       :disabled="disabled"
+      :class="inputClasses"
       :value="open ? query : (selected?.label ?? '')"
       :placeholder="selected?.label ?? placeholder ?? ''"
-      :class="cn(
-        'h-11 w-full rounded-full border border-black/[0.08] bg-white/80 pl-4 pr-9 text-[13px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] placeholder:text-[#1d1d1f]/60 focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:placeholder:text-[#f5f5f7]/60'
-      )"
       @focus="openList"
       @input="onInput"
       @keydown="onKeydown"
     />
-    <svg
-      class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden="true"
-    >
+    <svg :class="chevronClasses" viewBox="0 0 20 20" fill="none" aria-hidden="true">
       <path
         d="M6 8l4 4 4-4"
         stroke="currentColor"

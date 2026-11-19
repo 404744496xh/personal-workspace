@@ -5,11 +5,18 @@ import { cn } from '../../lib/utils'
 defineOptions({ inheritAttrs: false })
 
 const model = defineModel<string>({ default: '' })
-const props = defineProps<{ class?: string }>()
+const props = defineProps<{ class?: string; active?: boolean }>()
 
 const classes = computed(() => cn(
-  'h-11 w-full appearance-none rounded-full border border-black/[0.08] bg-white/80 pl-4 pr-9 text-[13px] text-[#1d1d1f] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7]',
-  'rounded-full'
+  'h-11 w-full appearance-none rounded-full border pl-4 pr-9 text-[13px] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[var(--ws-ease)] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 disabled:opacity-40',
+  props.active
+    ? 'border-[#007AFF]/45 bg-[#007AFF]/[0.07] text-[#007AFF] dark:border-[#0A84FF]/45 dark:bg-[#0A84FF]/[0.12] dark:text-[#64B5FF]'
+    : 'border-black/[0.08] bg-white/80 text-[#1d1d1f] hover:border-black/[0.14] dark:border-white/10 dark:bg-white/[0.06] dark:text-[#f5f5f7] dark:hover:border-white/20'
+))
+
+const chevronClasses = computed(() => cn(
+  'pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2',
+  props.active ? 'text-current opacity-70' : 'text-black/30 dark:text-white/30'
 ))
 </script>
 
@@ -19,7 +26,7 @@ const classes = computed(() => cn(
       <slot />
     </select>
     <svg
-      class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
+      :class="chevronClasses"
       viewBox="0 0 20 20"
       fill="none"
       aria-hidden="true"
