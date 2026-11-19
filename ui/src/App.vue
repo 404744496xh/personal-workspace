@@ -445,14 +445,14 @@ function toggleSidebar(): void {
               class="ws-logo flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-[8px] shadow-[0_2px_6px_rgba(0,122,255,0.28)]"
               aria-hidden="true"
             >
-              <svg class="h-full w-full" viewBox="0 0 28 28" fill="none">
+              <svg class="h-full w-full" viewBox="0 0 512 512" fill="none">
                 <defs>
                   <linearGradient
                     id="ws-logo-gradient"
-                    x1="2"
-                    y1="1"
-                    x2="26"
-                    y2="27"
+                    x1="0"
+                    y1="0"
+                    x2="512"
+                    y2="512"
                     gradientUnits="userSpaceOnUse"
                   >
                     <stop stop-color="#5AC8FA" />
@@ -460,31 +460,17 @@ function toggleSidebar(): void {
                     <stop offset="1" stop-color="#0A5BD3" />
                   </linearGradient>
                 </defs>
-                <rect width="28" height="28" rx="8" fill="url(#ws-logo-gradient)" />
+                <rect width="512" height="512" rx="120" fill="url(#ws-logo-gradient)" />
+                <rect x="82" y="52" width="260" height="320" rx="50" fill="#fff" opacity="0.38" />
+                <rect x="170" y="140" width="260" height="320" rx="50" fill="#fff" opacity="0.2" />
+                <rect x="126" y="96" width="260" height="320" rx="50" fill="#fff" />
                 <path
-                  d="M7.6 9.2l1.3 1.3 2.2-2.4"
-                  stroke="#fff"
-                  stroke-width="1.6"
+                  d="M180 260 L230 312 L332 208"
+                  stroke="#007AFF"
+                  stroke-width="40"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                 />
-                <path d="M14.4 9.1h6.2" stroke="#fff" stroke-width="1.6" stroke-linecap="round" />
-                <path
-                  d="M7.6 15l1.3 1.3 2.2-2.4"
-                  stroke="#fff"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path d="M14.4 14.9h6.2" stroke="#fff" stroke-width="1.6" stroke-linecap="round" />
-                <path
-                  d="M7.6 20.8l1.3 1.3 2.2-2.4"
-                  stroke="#fff"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path d="M14.4 20.7h4.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" />
               </svg>
             </span>
             <div class="flex flex-col leading-tight">
