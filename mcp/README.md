@@ -7,15 +7,16 @@
 - 范围：读写（不提供删除工具）
 - 依赖：Node.js ≥ 20
 
-## 构建
+## 最短路径
 
 ```bat
 cd /d D:\qt\halo\plugins\personal-workspace\mcp
 npm install
 npm run build
+notepad .token
 ```
 
-构建产物是 `dist/index.js`。
+把 `pat_...` 粘进 `.token`（一行，保存），然后按下面任一客户端配置添加 stdio MCP。
 
 ## 准备个人令牌
 
@@ -32,18 +33,30 @@ npm run build
 
 ## 客户端配置
 
-### Qoder / Claude Desktop（stdio）
+公共参数：
 
-在 MCP 设置里新增一个 stdio 服务器，或写入客户端配置：
+- 命令：`D:\devtool\nodejs\node.exe`（用绝对路径最稳；PATH 可用时也可以写 `node`）
+- 参数：`D:\qt\halo\plugins\personal-workspace\mcp\dist\index.js`
+- 环境变量：
+  - `WORKSPACE_BASE_URL`：站点地址，不带末尾斜杠；本地测试可用 `http://127.0.0.1:8093`
+  - `WORKSPACE_TOKEN_FILE`：令牌文件绝对路径
+
+JSON 里的 Windows 反斜杠要写成 `\\`。
+
+### Qoder Desktop
+
+在「设置 → MCP / 连接器」里新增一个自定义 **stdio** 服务器（名称 `personal-workspace`），填上面的命令、参数和环境变量。保存后在工具列表里应能看到 `list_todos` 等 14 个工具。
+
+### Claude Desktop
+
+编辑 `%APPDATA%\Claude\claude_desktop_config.json`，合并：
 
 ```json
 {
   "mcpServers": {
     "personal-workspace": {
       "command": "D:\\devtool\\nodejs\\node.exe",
-      "args": [
-        "D:\\qt\\halo\\plugins\\personal-workspace\\mcp\\dist\\index.js"
-      ],
+      "args": ["D:\\qt\\halo\\plugins\\personal-workspace\\mcp\\dist\\index.js"],
       "env": {
         "WORKSPACE_BASE_URL": "https://www.xiahan.asia",
         "WORKSPACE_TOKEN_FILE": "D:\\qt\\halo\\plugins\\personal-workspace\\mcp\\.token"
@@ -53,12 +66,64 @@ npm run build
 }
 ```
 
-说明：
+完全退出并重启 Claude Desktop。
 
-- `command` 用 `node.exe` 的绝对路径最稳；如果客户端能读到 PATH，也可以写 `node`。
-- `WORKSPACE_BASE_URL` 不带末尾斜杠；本地测试可改成 `http://127.0.0.1:8093`。
-- Claude Desktop 的配置文件通常在 `%APPDATA%\Claude\claude_desktop_config.json`。
-- 修改配置后重启客户端；服务器启动日志会输出 `personal-workspace-mcp ready: <base>`（不含令牌）。
+### Cursor
+
+Settings → Tools & MCP → Add Custom MCP，或写入全局 `%USERPROFILE%\.cursor\mcp.json` / 项目 `.cursor/mcp.json`，内容同上。
+
+### Claude Code（CLI）
+
+```bat
+claude mcp add personal-workspace ^
+  -e WORKSPACE_BASE_URL=https://www.xiahan.asia ^
+  -e WORKSPACE_TOKEN_FILE=D:\qt\halo\plugins\personal-workspace\mcp\.token ^
+  -- "D:\devtool\nodejs\node.exe" "D:\qt\halo\plugins\personal-workspace\mcp\dist\index.js"
+```
+
+具体参数以 `claude mcp add --help` 为准。
+
+### VS Code / GitHub Copilot
+
+在 `.vscode/mcp.json` 里用 `servers` 键，条目加 `"type": "stdio"`：
+
+```json
+{
+  "servers": {
+    "personal-workspace": {
+      "type": "stdio",
+      "command": "D:\\devtool\\nodejs\\node.exe",
+      "args": ["D:\\qt\\halo\\plugins\\personal-workspace\\mcp\\dist\\index.js"],
+      "env": {
+        "WORKSPACE_BASE_URL": "https://www.xiahan.asia",
+        "WORKSPACE_TOKEN_FILE": "D:\\qt\\halo\\plugins\\personal-workspace\\mcp\\.token"
+      }
+    }
+  }
+}
+```
+
+### 其他桌面客户端
+
+Cherry Studio、ChatWise、Open WebUI 等：在 MCP 设置里新增 **stdio** 服务器，命令、参数、环境变量与上面一致。多个客户端可以共用同一个 `.token` 文件。
+
+### 网页版 / 手机 AI
+
+ChatGPT 网页版、Claude 网页版、手机 AI 等不能启动你电脑上的进程，**无法直接安装本地 stdio MCP**。需要把同一套工具部署成远程 MCP（客户端只填 URL + 令牌），目前版本未包含。
+
+## 怎么用
+
+配置完成后直接用自然语言对话，AI 会自动选择工具，例如：
+
+- 「列出所有未完成的高优先级待办」
+- 「给个人工作台的‘前端’模块加一条待办：首页改版，截止 11 月 25 日」
+- 「把‘首页改版’标记完成」「把它改成不用处理」「取消今日聚焦」
+- 「把这条待办移到 项目 A 的 模块 B」
+- 「搜索和‘培训’有关的笔记」「读一下笔记 xxx 的全文」
+- 「建一篇笔记，关联项目 A 的模块 B」
+- 「把项目 A 的状态改成测试中」
+
+没有删除工具；删除仍需回工作台页面操作。
 
 ## 工具
 
@@ -89,6 +154,8 @@ npm run build
 
 ## 本地冒烟测试
 
+仅用于本地 8093 测试台；会创建并清理临时数据，不要直接对生产跑。
+
 ```bat
 cd /d D:\qt\halo\plugins\personal-workspace\mcp
 set WORKSPACE_BASE_URL=http://127.0.0.1:8093
@@ -96,7 +163,15 @@ set WORKSPACE_TOKEN_FILE=D:\qt\halo\plugins\personal-workspace\mcp\.token
 npm run smoke
 ```
 
-会创建并清理一组临时项目 / 待办 / 笔记，覆盖状态快照、自动加模块、笔记读写和搜索。测试脚本不会打印令牌。
+覆盖状态快照、自动加模块、笔记读写和搜索。测试脚本不会打印令牌。
+
+## 排错
+
+- **客户端提示启动失败 / 工具列表为空**：确认 `mcp\dist\index.js` 存在（先 `npm run build`），`command` 指向的 `node.exe` 正确，Node ≥ 20。
+- **提示「缺少令牌」**：`.token` 不存在、为空，或 `WORKSPACE_TOKEN_FILE` 路径写错；也可以改用 `WORKSPACE_TOKEN`。
+- **401 / 403**：令牌已撤销或过期，或角色缺少 `authenticated`（工作台 API 权限）。
+- **改了配置没生效**：重启客户端；查看客户端 MCP 日志，正常会看到 `personal-workspace-mcp ready: <base>`（不含令牌）。
+- **本地能用、生产不行**：确认 `WORKSPACE_BASE_URL` 改成 `https://www.xiahan.asia`，且令牌属于对应站点的用户。
 
 ## 安全边界
 
