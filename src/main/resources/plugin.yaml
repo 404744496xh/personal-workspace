@@ -7,6 +7,9 @@ spec:
   author:
     name: xiahan
     website: https://www.xiahan.asia
+  homepage: https://github.com/404744496xh/personal-workspace#readme
+  repo: https://github.com/404744496xh/personal-workspace
+  issues: https://github.com/404744496xh/personal-workspace/issues
   logo: logo.png
   displayName: "个人工作台"
   description: "站点前台的个人工作台：待办、项目、命令、笔记与备份，数据按登录用户隔离"
