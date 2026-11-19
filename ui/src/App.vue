@@ -30,7 +30,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: 'todos', label: '待办', subtitle: '按项目与模块整理待办' },
-  { key: 'projects', label: '项目', subtitle: '项目进度、模块与关联链接' },
+  { key: 'projects', label: '项目', subtitle: '项目状态、模块与关联链接' },
   { key: 'commands', label: '命令', subtitle: '常用命令一键复制' },
   { key: 'notes', label: '笔记', subtitle: 'Markdown 笔记与关联项目待办' },
   { key: 'backup', label: '备份', subtitle: '导出与导入个人数据' }

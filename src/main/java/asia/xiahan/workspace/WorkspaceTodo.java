@@ -58,6 +58,12 @@ public class WorkspaceTodo extends AbstractExtension {
         @Schema(description = "Module name inside the project", maxLength = 32)
         private String module;
 
+        @Schema(
+            description = "Project status snapshot when the todo was created",
+            allowableValues = {"NOT_STARTED", "DEV", "TEST", "RELEASED", "ACCEPTED"}
+        )
+        private String projectStatus;
+
         @Schema(description = "Person who raised or reported this todo", maxLength = 64)
         private String reporter;
 
@@ -136,6 +142,14 @@ public class WorkspaceTodo extends AbstractExtension {
 
         public void setModule(String module) {
             this.module = module;
+        }
+
+        public String getProjectStatus() {
+            return projectStatus;
+        }
+
+        public void setProjectStatus(String projectStatus) {
+            this.projectStatus = projectStatus;
         }
 
         public String getReporter() {

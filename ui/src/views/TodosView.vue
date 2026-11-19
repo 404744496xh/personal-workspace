@@ -13,6 +13,13 @@ import {
   updateTodo
 } from '../api'
 import type { Priority, Project, Todo, TodoPayload } from '../types'
+import {
+  PROJECT_STATUSES,
+  projectStatusMeta,
+  projectStatusOf,
+  todoProjectStatusOf
+} from '../projectStatus'
+import type { ProjectStatus } from '../projectStatus'
 import { copyText, formatDate, formatDateTime, messageOf, priorityLabel } from '../utils'
 import { takeSearchTarget, takeTodosTarget } from '../searchTarget'
 import type { NotesTarget } from '../searchTarget'
@@ -47,6 +54,7 @@ interface FilterState {
   priority: Priority | ''
   project: string | null
   module: string | null
+  projectStatus: string
   createdFrom: string
   createdTo: string
   completedFrom: string
@@ -69,6 +77,7 @@ interface ProjectGroup {
   key: string
   title: string
   count: number
+  status: ProjectStatus | null
   modules: ModuleGroup[]
 }
 
@@ -98,6 +107,7 @@ function staleCutoff(): string {
 
 const status = ref<StatusFilter>(todosTarget?.todo ? 'ALL' : (todosTarget?.status ?? 'OPEN'))
 const priority = ref<Priority | ''>('')
+const projectStatus = ref('')
 const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
 
@@ -174,7 +184,7 @@ watch(moveProject, () => {
 const showFinished = ref(
   todosTarget?.project
     ? (cachedProjects ?? []).some((project) =>
-      project.name === todosTarget.project && project.progress >= 100)
+      project.name === todosTarget.project && projectStatusOf(project) === 'ACCEPTED')
     : false)
 let jumpApplied = showFinished.value || !todosTarget?.project
 let todoJumpApplied = false
@@ -190,13 +200,14 @@ const collapsedModules = ref<Set<string>>(new Set())
 
 const hasFilters = computed(() =>
   keyword.value.trim() !== '' || (status.value !== 'ALL' && status.value !== 'OPEN')
-  || priority.value !== '' || activeProject.value !== null || createdFrom.value !== ''
+  || priority.value !== '' || activeProject.value !== null || projectStatus.value !== ''
+  || createdFrom.value !== ''
   || createdTo.value !== '' || completedFrom.value !== '' || completedTo.value !== '')
 const hasCreatedFilter = computed(() => createdFrom.value !== '' || createdTo.value !== '')
 const hasCompletedFilter = computed(() => completedFrom.value !== '' || completedTo.value !== '')
 const hasTimeFilters = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
 const showEmptyGroups = computed(() =>
-  status.value === 'OPEN' && activeProject.value === null
+  status.value === 'OPEN' && activeProject.value === null && projectStatus.value === ''
   && keyword.value.trim() === '' && priority.value === '' && !hasTimeFilters.value)
 const currentFilterState = computed<FilterState>(() => ({
   keyword: keyword.value,
@@ -204,6 +215,7 @@ const currentFilterState = computed<FilterState>(() => ({
   priority: priority.value,
   project: activeProject.value,
   module: activeModule.value,
+  projectStatus: projectStatus.value,
   createdFrom: createdFrom.value,
   createdTo: createdTo.value,
   completedFrom: completedFrom.value,
@@ -213,7 +225,7 @@ const activeView = computed(() => savedViews.value.find(
   (view) => filtersEqual(view.filters, currentFilterState.value)) ?? null)
 const hasNonKeywordFilters = computed(() =>
   (status.value !== 'ALL' && status.value !== 'OPEN') || priority.value !== ''
-  || activeProject.value !== null || hasTimeFilters.value)
+  || activeProject.value !== null || projectStatus.value !== '' || hasTimeFilters.value)
 const timeFilterTitle = computed(() => {
   const parts = [
     hasCreatedFilter.value ? '创建时间' : '',
@@ -257,8 +269,12 @@ const sortDirectionLabel = computed(() => {
   return desc ? '新→旧' : '旧→新'
 })
 const hiddenProjectNames = computed(() => new Set(
-  projects.value.filter((project) => project.progress >= 100)
+  projects.value.filter((project) => projectStatusOf(project) === 'ACCEPTED')
     .map((project) => project.name)))
+const projectStatusOptions = [
+  { value: '', label: '全部项目状态' },
+  ...PROJECT_STATUSES.map((item) => ({ value: item.value, label: item.label }))
+]
 const hiddenTodoCount = computed(() =>
   showFinished.value
     ? 0
@@ -276,6 +292,8 @@ const visibleItems = computed(() => {
       if (!haystack.includes(needle)) return false
     }
     if (priority.value && todo.priority !== priority.value) return false
+    if (projectStatus.value
+      && todoProjectStatusOf(todo, projects.value) !== projectStatus.value) return false
     if (activeProject.value !== null && projectKeyOf(todo) !== activeProject.value) return false
     if (activeModule.value !== null && (todo.module ?? '') !== activeModule.value) return false
     if (!matchesCreatedRange(todo)) return false
@@ -408,8 +426,13 @@ watch(activeProject, () => {
   }
 })
 
-function clearAllFilters(): void {
+function clearScopeFilters(): void {
   clearSelection()
+  projectStatus.value = ''
+}
+
+function clearAllFilters(): void {
+  clearScopeFilters()
   keyword.value = ''
   status.value = 'OPEN'
   priority.value = ''
@@ -440,6 +463,8 @@ function loadSavedViews(): SavedView[] {
           project: typeof filters.project === 'string' ? filters.project : null,
           module: typeof filters.project === 'string' && typeof filters.module === 'string'
             ? filters.module : null,
+          projectStatus: PROJECT_STATUSES.some((item) => item.value === filters.projectStatus)
+            ? filters.projectStatus as string : '',
           createdFrom: typeof filters.createdFrom === 'string' ? filters.createdFrom : '',
           createdTo: typeof filters.createdTo === 'string' ? filters.createdTo : '',
           completedFrom: typeof filters.completedFrom === 'string' ? filters.completedFrom : '',
@@ -459,7 +484,8 @@ function persistViews(): void {
 function filtersEqual(left: FilterState, right: FilterState): boolean {
   return left.keyword === right.keyword && left.status === right.status
     && left.priority === right.priority && left.project === right.project
-    && left.module === right.module && left.createdFrom === right.createdFrom
+    && left.module === right.module && left.projectStatus === right.projectStatus
+    && left.createdFrom === right.createdFrom
     && left.createdTo === right.createdTo && left.completedFrom === right.completedFrom
     && left.completedTo === right.completedTo
 }
@@ -470,6 +496,7 @@ function applyView(view: SavedView): void {
   priority.value = view.filters.priority
   activeProject.value = view.filters.project
   activeModule.value = view.filters.module
+  projectStatus.value = view.filters.projectStatus
   createdFrom.value = view.filters.createdFrom
   createdTo.value = view.filters.createdTo
   completedFrom.value = view.filters.completedFrom
@@ -645,6 +672,7 @@ function buildGroups(todos: Todo[], projectList: Project[],
       key: project.name,
       title: project.title,
       count: countTodos(moduleBuckets),
+      status: projectStatusOf(project),
       modules: buildModuleGroups(
         moduleBuckets,
         project.modules,
@@ -658,6 +686,7 @@ function buildGroups(todos: Todo[], projectList: Project[],
       key: '',
       title: '未分类',
       count: countTodos(unclassified),
+      status: null,
       modules: buildModuleGroups(unclassified, [], false)
     })
   }
@@ -762,7 +791,7 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
     total.value = todoList.total
     if (!jumpApplied && todosTarget?.project
       && projectList.some((project) =>
-        project.name === todosTarget.project && project.progress >= 100)) {
+        project.name === todosTarget.project && projectStatusOf(project) === 'ACCEPTED')) {
       showFinished.value = true
     }
     jumpApplied = true
@@ -2295,8 +2324,8 @@ onUnmounted(() => {
         <Button
           :variant="showFinished ? 'primary' : 'secondary'"
           size="icon"
-          :aria-label="showFinished ? '隐藏已完结项目（进度 100%）' : '显示已完结项目（进度 100%）'"
-          :title="showFinished ? '隐藏已完结项目' : '显示已完结项目'"
+          :aria-label="showFinished ? '隐藏已验收项目的待办' : '显示已验收项目的待办'"
+          :title="showFinished ? '隐藏已验收项目的待办' : '显示已验收项目的待办'"
           :aria-pressed="showFinished"
           @click="showFinished = !showFinished"
         >
@@ -2416,12 +2445,18 @@ onUnmounted(() => {
         aria-label="按模块筛选"
         class="w-[156px] shrink-0"
       />
+      <SearchSelect
+        v-model="projectStatus"
+        :options="projectStatusOptions"
+        aria-label="按项目状态筛选"
+        class="w-[132px] shrink-0"
+      />
       <Button
-        v-if="activeProject !== null || activeModule !== null"
+        v-if="activeProject !== null || activeModule !== null || projectStatus !== ''"
         variant="ghost"
         size="sm"
         class="ws-clear-filters"
-        @click="clearSelection"
+        @click="clearScopeFilters"
       >
         清除筛选
       </Button>
@@ -2821,6 +2856,18 @@ onUnmounted(() => {
             <span
               class="ws-group-count rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#6e6e73] dark:bg-white/[0.08] dark:text-[#98989d]"
             >{{ group.count }}</span>
+            <span
+              v-if="group.status"
+              class="ws-group-status hidden shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline-flex"
+              :class="projectStatusMeta(group.status).badge"
+            >
+              <i
+                class="h-1 w-1 rounded-full"
+                :class="projectStatusMeta(group.status).dot"
+                aria-hidden="true"
+              ></i>
+              {{ projectStatusMeta(group.status).label }}
+            </span>
           </button>
           <Button
             variant="ghost"

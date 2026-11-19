@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Priority, Project, Todo, TodoPayload } from '../types'
+import { projectStatusMeta, projectStatusOf } from '../projectStatus'
 import { formatDateTime } from '../utils'
 import { localDateTimeToIso, toDateTimeLocal } from '../datetime'
 import Button from './ui/Button.vue'
@@ -37,6 +38,10 @@ const localError = ref('')
 const projectModules = computed(
   () => props.projects.find((item) => item.name === project.value)?.modules ?? []
 )
+const selectedProjectStatus = computed(() => {
+  const found = props.projects.find((item) => item.name === project.value)
+  return found ? projectStatusMeta(projectStatusOf(found)) : null
+})
 const moduleOptions = computed(() => {
   const options = [...projectModules.value]
   if (module.value && !options.includes(module.value)) {
@@ -163,7 +168,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </label>
         </div>
         <p class="ws-hint -mt-1 text-[12px] text-[#6e6e73] dark:text-[#98989d]">
-          模块可直接输入新模块，保存后自动加入项目。
+          模块可直接输入新模块，保存后自动加入项目。<template v-if="selectedProjectStatus">项目当前状态「{{ selectedProjectStatus.label }}」会随待办一起记录。</template>
         </p>
 
         <div class="ws-field-row grid grid-cols-1 gap-3 sm:grid-cols-2">

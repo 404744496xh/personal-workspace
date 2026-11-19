@@ -11,6 +11,8 @@ import {
   updateProject
 } from '../api'
 import type { Project, ProjectPayload, Todo } from '../types'
+import { PROJECT_STATUSES, projectStatusMeta, projectStatusOf } from '../projectStatus'
+import type { ProjectStatus } from '../projectStatus'
 import { copyText, messageOf, safeHref } from '../utils'
 import { takeSearchTarget } from '../searchTarget'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
@@ -46,11 +48,10 @@ const emit = defineEmits<{
 const projects = ref<Project[]>(cachedProjects ?? [])
 const todos = ref<Todo[]>(cachedTodos?.items ?? [])
 const keyword = ref(takeSearchTarget())
-const progressFilter = ref('')
-const progressOptions = [
+const statusFilter = ref<ProjectStatus | ''>('')
+const statusOptions = [
   { value: '', label: '全部状态' },
-  { value: 'open', label: '未完成项目' },
-  { value: 'done', label: '已完成项目' }
+  ...PROJECT_STATUSES.map((item) => ({ value: item.value, label: item.label }))
 ]
 const loading = ref(!cachedProjects)
 const error = ref('')
@@ -78,13 +79,12 @@ const stats = computed(() => {
 })
 
 const hasProjectFilters = computed(() =>
-  keyword.value.trim() !== '' || progressFilter.value !== '')
+  keyword.value.trim() !== '' || statusFilter.value !== '')
 
 const filteredProjects = computed(() => {
   const needle = keyword.value.trim().toLowerCase()
   return projects.value.filter((project) => {
-    if (progressFilter.value === 'done' && project.progress < 100) return false
-    if (progressFilter.value === 'open' && project.progress >= 100) return false
+    if (statusFilter.value && projectStatusOf(project) !== statusFilter.value) return false
     if (!needle) return true
     return [project.title, project.note ?? '', ...project.modules, ...project.links]
       .some((value) => value.toLowerCase().includes(needle))
@@ -294,7 +294,7 @@ onMounted(() => {
     <ToolsToggle
       v-if="toolsCollapsed"
       v-model="keyword"
-      :active="progressFilter !== ''"
+      :active="statusFilter !== ''"
       placeholder="搜索项目、模块或备注"
       search-label="搜索项目"
       @expand="toolsCollapsed = false"
@@ -314,10 +314,10 @@ onMounted(() => {
         <Input v-model="keyword" class="ws-search pl-10" placeholder="搜索项目、模块或备注" />
       </div>
       <SearchSelect
-        v-model="progressFilter"
-        :options="progressOptions"
+        v-model="statusFilter"
+        :options="statusOptions"
         aria-label="按项目状态筛选"
-        class="w-[150px]"
+        class="w-[132px]"
       />
       <Button variant="primary" class="ml-auto" @click="openCreate">
         <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -354,7 +354,7 @@ onMounted(() => {
         {{ hasProjectFilters ? '没有匹配的项目' : '还没有项目' }}
       </p>
       <p class="ws-muted text-[13px] text-[#6e6e73] dark:text-[#98989d]">
-        {{ hasProjectFilters ? '换个关键词或状态试试' : '把正在做的事建成项目，集中管理模块、进度和链接' }}
+        {{ hasProjectFilters ? '换个关键词或状态试试' : '把正在做的事建成项目，集中管理模块、状态和链接' }}
       </p>
       <Button v-if="!hasProjectFilters" class="mt-2" variant="primary" @click="openCreate">
         新建项目
@@ -439,15 +439,17 @@ onMounted(() => {
           </div>
         </header>
 
-        <div class="mb-3 flex items-center gap-3">
-          <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.1]">
-            <div
-              class="h-full rounded-full bg-[#007AFF] transition-[width] duration-300 ease-[var(--ws-ease)] dark:bg-[#0A84FF]"
-              :style="{ width: `${project.progress}%` }"
-            ></div>
-          </div>
-          <span class="w-9 text-right text-[12px] font-medium tabular-nums text-[#6e6e73] dark:text-[#98989d]">
-            {{ project.progress }}%
+        <div class="mb-3 flex items-center">
+          <span
+            class="ws-project-status-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
+            :class="projectStatusMeta(projectStatusOf(project)).badge"
+          >
+            <i
+              class="h-1.5 w-1.5 rounded-full"
+              :class="projectStatusMeta(projectStatusOf(project)).dot"
+              aria-hidden="true"
+            ></i>
+            {{ projectStatusMeta(projectStatusOf(project)).label }}
           </span>
         </div>
 

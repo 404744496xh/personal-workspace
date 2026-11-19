@@ -39,7 +39,14 @@ public class WorkspaceProject extends AbstractExtension {
         @Schema(requiredMode = REQUIRED, description = "Project title", maxLength = 200)
         private String title;
 
-        @Schema(description = "Progress percentage, 0 to 100", minimum = "0", maximum = "100")
+        @Schema(
+            description = "Project status",
+            allowableValues = {"NOT_STARTED", "DEV", "TEST", "RELEASED", "ACCEPTED"}
+        )
+        private String status;
+
+        @Schema(description = "Legacy progress percentage, kept for old records only",
+            minimum = "0", maximum = "100")
         private Integer progress;
 
         @Schema(description = "Project modules, ordered")
@@ -68,6 +75,14 @@ public class WorkspaceProject extends AbstractExtension {
 
         public void setTitle(String title) {
             this.title = title;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
         }
 
         public Integer getProgress() {

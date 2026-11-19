@@ -7,11 +7,20 @@ public record ProjectView(
     String name,
     String title,
     List<String> modules,
-    int progress,
+    String status,
     String note,
     List<String> links,
     List<String> tags
 ) {
+
+    public static String statusOf(WorkspaceProject project) {
+        return statusOf(project.getSpec());
+    }
+
+    public static String statusOf(WorkspaceProject.Spec spec) {
+        var status = spec.getStatus();
+        return status == null || status.isBlank() ? "DEV" : status;
+    }
 
     public static ProjectView of(WorkspaceProject project) {
         var spec = project.getSpec();
@@ -19,7 +28,7 @@ public record ProjectView(
             project.getMetadata().getName(),
             spec.getTitle(),
             spec.getModules() == null ? List.of() : List.copyOf(spec.getModules()),
-            spec.getProgress() == null ? 0 : spec.getProgress(),
+            statusOf(spec),
             spec.getNote(),
             spec.getLinks() == null ? List.of() : List.copyOf(spec.getLinks()),
             spec.getTags() == null ? List.of() : List.copyOf(spec.getTags())

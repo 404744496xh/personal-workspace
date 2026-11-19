@@ -1,6 +1,7 @@
 package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.NoteSummary;
+import asia.xiahan.workspace.dto.ProjectView;
 import asia.xiahan.workspace.dto.ReportRequest;
 import asia.xiahan.workspace.dto.ReportResponse;
 import java.time.Instant;
@@ -63,7 +64,7 @@ public class ReportService {
         3-5 条（数据不足时可减少）。每条写成「做了什么 → 结果/影响」，合并同类事项；优先写已完成、已验证或已交付的结果，不要逐条抄待办标题。
 
         ## 四、风险、阻塞与资源需求
-        有风险时用 Markdown 表格：风险 | 影响 | 建议应对 | 需要支持。只能基于数据中的逾期、长期未完成、高优先级未完成、进度停滞等线索；需要支持无法从数据判断时填「待确认」。没有风险时写「暂无明显阻塞」。
+        有风险时用 Markdown 表格：风险 | 影响 | 建议应对 | 需要支持。只能基于数据中的逾期、长期未完成、高优先级未完成、项目状态长期未推进等线索；需要支持无法从数据判断时填「待确认」。没有风险时写「暂无明显阻塞」。
 
         ## 五、下期计划
         3-5 条，按优先级排序（高/中/低）。来自未完成待办和项目剩余工作，每条写清预期结果或检查点；不要写「继续推进」这类无法验收的表述。
@@ -255,8 +256,9 @@ public class ReportService {
         } else {
             var ordered = new ArrayList<>(projects);
             ordered.sort(Comparator
-                .comparingInt((WorkspaceProject project) -> progressOf(project) >= 100 ? 1 : 0)
-                .thenComparing(Comparator.comparingInt(ReportService::progressOf).reversed()));
+                .comparingInt((WorkspaceProject project) -> statusRank(project) >= 4 ? 1 : 0)
+                .thenComparing(Comparator.comparingInt(
+                    (WorkspaceProject project) -> statusRank(project)).reversed()));
             var index = 1;
             for (var project : ordered) {
                 if (project.getSpec() == null || project.getMetadata() == null) continue;
@@ -328,10 +330,8 @@ public class ReportService {
     private static void appendProject(StringBuilder builder, int index,
         WorkspaceProject project, ProjectStat stat, List<String> noteTitles) {
         var spec = project.getSpec();
-        var progress = progressOf(project);
         builder.append(index).append(". ").append(spec.getTitle())
-            .append("｜").append(progress >= 100 ? "已完结" : "进行中")
-            .append("｜进度 ").append(progress).append("%")
+            .append("｜").append(statusLabel(project))
             .append("｜模块：").append(joinOr(spec.getModules(), "无"))
             .append("｜标签：").append(joinOr(spec.getTags(), "无"));
         if (spec.getLinks() != null && !spec.getLinks().isEmpty()) {
@@ -401,9 +401,31 @@ public class ReportService {
             .collect(Collectors.toSet());
     }
 
-    private static int progressOf(WorkspaceProject project) {
-        var spec = project.getSpec();
-        return spec == null || spec.getProgress() == null ? 0 : spec.getProgress();
+    private static int statusRank(WorkspaceProject project) {
+        if (project.getSpec() == null) {
+            return 1;
+        }
+        return statusRank(ProjectView.statusOf(project));
+    }
+
+    private static int statusRank(String status) {
+        return switch (status) {
+            case "NOT_STARTED" -> 0;
+            case "TEST" -> 2;
+            case "RELEASED" -> 3;
+            case "ACCEPTED" -> 4;
+            default -> 1;
+        };
+    }
+
+    private static String statusLabel(WorkspaceProject project) {
+        return switch (ProjectView.statusOf(project)) {
+            case "NOT_STARTED" -> "未开始";
+            case "TEST" -> "测试中";
+            case "RELEASED" -> "已上线";
+            case "ACCEPTED" -> "已验收";
+            default -> "开发中";
+        };
     }
 
     private static String joinOr(List<String> values, String fallback) {

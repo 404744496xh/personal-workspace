@@ -209,7 +209,7 @@ function confirmReplace(): void {
       <h3 class="text-[15px] font-semibold">备份内容</h3>
       <ul class="mt-2 space-y-1.5 text-[13px] text-[#6e6e73] dark:text-[#98989d]">
         <li>待办：标题、详情、优先级、项目/模块、截止日期、完成时间</li>
-        <li>项目：名称、模块、进度、备注、关联链接</li>
+        <li>项目：名称、模块、状态、备注、关联链接</li>
         <li>命令：名称、分类、命令内容、备注</li>
         <li>笔记：标题、Markdown 正文、关联项目/模块/待办；图片仅保留 URL</li>
       </ul>

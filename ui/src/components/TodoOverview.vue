@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Project, Todo } from '../types'
+import { PROJECT_STATUSES, projectStatusMeta, projectStatusOf } from '../projectStatus'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
 import { copyText, formatDate, messageOf, todayString } from '../utils'
 import { createNote, generateReport } from '../api'
@@ -169,11 +170,15 @@ const staleCount = computed(() => {
 })
 
 const activeProjects = computed(() =>
-  props.projects.filter((project) => project.progress < 100))
+  props.projects.filter((project) => projectStatusOf(project) !== 'ACCEPTED'))
 const doneProjects = computed(() =>
-  props.projects.filter((project) => project.progress >= 100))
+  props.projects.filter((project) => projectStatusOf(project) === 'ACCEPTED'))
+const statusRank = (project: Project): number =>
+  PROJECT_STATUSES.findIndex((item) => item.value === projectStatusOf(project))
 const topProjects = computed(() =>
-  [...activeProjects.value].sort((a, b) => b.progress - a.progress).slice(0, 3))
+  [...activeProjects.value]
+    .sort((a, b) => statusRank(b) - statusRank(a))
+    .slice(0, 3))
 
 const trendPoints = computed(() =>
   view.value === 'month'
@@ -672,7 +677,7 @@ function openTodoDetail(todo: Todo): void {
           <div class="flex items-baseline gap-2">
             <p class="text-[12px] text-[#6e6e73] dark:text-[#98989d]">项目</p>
             <p class="ml-auto text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]">
-              进行中 {{ activeProjects.length }} · 已完结 {{ doneProjects.length }}
+              进行中 {{ activeProjects.length }} · 已验收 {{ doneProjects.length }}
             </p>
           </div>
           <ul v-if="topProjects.length" class="mt-2 flex flex-col gap-2">
@@ -687,13 +692,17 @@ function openTodoDetail(todo: Todo): void {
               >
                 <span class="flex items-center gap-2 text-[11px]">
                   <span class="truncate text-[#1d1d1f]/80 dark:text-[#f5f5f7]/70">{{ project.title }}</span>
-                  <span class="ml-auto shrink-0 tabular-nums text-[#6e6e73] dark:text-[#98989d]">{{ project.progress }}%</span>
-                </span>
-                <span class="mt-1 block h-1 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/[0.10]">
                   <span
-                    class="block h-full rounded-full bg-[#007AFF] dark:bg-[#0A84FF]"
-                    :style="{ width: `${project.progress}%` }"
-                  ></span>
+                    class="ml-auto inline-flex shrink-0 items-center gap-1"
+                    :class="projectStatusMeta(projectStatusOf(project)).text"
+                  >
+                    <i
+                      class="h-1.5 w-1.5 rounded-full"
+                      :class="projectStatusMeta(projectStatusOf(project)).dot"
+                      aria-hidden="true"
+                    ></i>
+                    {{ projectStatusMeta(projectStatusOf(project)).label }}
+                  </span>
                 </span>
               </button>
             </li>

@@ -5,6 +5,7 @@ import asia.xiahan.workspace.dto.BackupPayload;
 import asia.xiahan.workspace.dto.ModuleRenameRequest;
 import asia.xiahan.workspace.dto.NoteUpsertRequest;
 import asia.xiahan.workspace.dto.ProjectUpsertRequest;
+import asia.xiahan.workspace.dto.ProjectView;
 import asia.xiahan.workspace.dto.QuickCmdUpsertRequest;
 import asia.xiahan.workspace.dto.SearchHit;
 import asia.xiahan.workspace.dto.TodoQuery;
@@ -21,6 +22,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Sort;
@@ -85,24 +88,37 @@ public class WorkspaceDataAccess {
     }
 
     public Mono<WorkspaceTodo> createTodo(String owner, TodoUpsertRequest request) {
-        return requireOwnedProject(owner, request.project())
-            .then(Mono.defer(() -> {
+        return lookupProject(owner, request.project())
+            .map(Optional::of)
+            .defaultIfEmpty(Optional.empty())
+            .flatMap(project -> {
                 var todo = new WorkspaceTodo();
                 todo.setMetadata(newMetadata());
                 var spec = new WorkspaceTodo.Spec();
                 apply(spec, owner, request, true);
+                spec.setProjectStatus(project.map(WorkspaceDataAccess::statusOf).orElse(null));
                 todo.setSpec(spec);
                 return client.create(todo);
-            }));
+            });
     }
 
     public Mono<WorkspaceTodo> updateTodo(String owner, String name, TodoUpsertRequest request) {
         return getTodo(owner, name)
-            .flatMap(todo -> requireOwnedProject(owner, request.project())
-                .then(Mono.fromSupplier(() -> {
+            .flatMap(todo -> lookupProject(owner, request.project())
+                .map(Optional::of)
+                .defaultIfEmpty(Optional.empty())
+                .map(project -> {
+                    var previousProject = todo.getSpec().getProject();
                     apply(todo.getSpec(), owner, request, false);
+                    var spec = todo.getSpec();
+                    if (spec.getProject() == null) {
+                        spec.setProjectStatus(null);
+                    } else if (!Objects.equals(previousProject, spec.getProject())
+                        || spec.getProjectStatus() == null) {
+                        project.ifPresent(found -> spec.setProjectStatus(statusOf(found)));
+                    }
                     return todo;
-                })))
+                }))
             .flatMap(client::update)
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
@@ -126,7 +142,7 @@ public class WorkspaceDataAccess {
 
     public Mono<WorkspaceProject> createProject(String owner, ProjectUpsertRequest request) {
         return Mono.fromSupplier(() -> buildProject(owner, request.title(), request.modules(),
-                request.progress(), request.note(), request.links(), request.tags()))
+                request.status(), request.note(), request.links(), request.tags()))
             .flatMap(client::create);
     }
 
@@ -137,8 +153,8 @@ public class WorkspaceDataAccess {
                 var spec = project.getSpec();
                 spec.setTitle(request.title().trim());
                 spec.setModules(normalizeModules(request.modules()));
-                if (request.progress() != null) {
-                    spec.setProgress(clampProgress(request.progress()));
+                if (request.status() != null) {
+                    spec.setStatus(request.status());
                 }
                 if (request.note() != null) {
                     spec.setNote(trimToNull(request.note()));
@@ -335,9 +351,8 @@ public class WorkspaceDataAccess {
                     .limit(SEARCH_LIMIT_PER_TYPE)
                     .map(project -> new SearchHit("project", project.getMetadata().getName(),
                         project.getSpec().getTitle(),
-                        nullSafe(project.getSpec().getModules()).size() + " 个模块 · 进度 "
-                            + (project.getSpec().getProgress() == null
-                                ? 0 : project.getSpec().getProgress()) + "%"))
+                        nullSafe(project.getSpec().getModules()).size() + " 个模块 · "
+                            + statusLabel(statusOf(project))))
                     .forEach(hits::add);
                 commandList.stream()
                     .filter(command -> matches(needle, command.getSpec().getTitle(),
@@ -375,6 +390,7 @@ public class WorkspaceDataAccess {
                         todo.getSpec().getPriority(),
                         todo.getSpec().getProject(),
                         todo.getSpec().getModule(),
+                        todo.getSpec().getProjectStatus(),
                         todo.getSpec().getReporter(),
                         todo.getSpec().getDueDate(),
                         todo.getSpec().isCompleted(),
@@ -388,7 +404,8 @@ public class WorkspaceDataAccess {
                         project.getMetadata().getName(),
                         project.getSpec().getTitle(),
                         nullSafe(project.getSpec().getModules()),
-                        project.getSpec().getProgress(),
+                        statusOf(project),
+                        null,
                         project.getSpec().getNote(),
                         nullSafe(project.getSpec().getLinks()),
                         nullSafe(project.getSpec().getTags())))
@@ -424,13 +441,17 @@ public class WorkspaceDataAccess {
         }
         var projects = new ArrayList<WorkspaceProject>();
         var projectNames = new HashMap<String, String>();
+        var projectStatuses = new HashMap<String, String>();
         for (var source : nullSafe(payload.projects())) {
             var project = buildProject(owner, source.title(), source.modules(),
-                source.progress(), source.note(), source.links(), source.tags());
+                source.status() != null ? source.status() : "DEV",
+                source.note(), source.links(), source.tags());
             projects.add(project);
             var oldName = trimToNull(source.name());
             if (oldName != null) {
                 projectNames.putIfAbsent(oldName, project.getMetadata().getName());
+                projectStatuses.put(project.getMetadata().getName(),
+                    statusOf(project));
             }
         }
         var todos = new ArrayList<WorkspaceTodo>();
@@ -447,6 +468,9 @@ public class WorkspaceDataAccess {
             spec.setPriority(source.priority() == null ? "MEDIUM" : source.priority());
             spec.setProject(mappedProject);
             spec.setModule(normalizeModule(mappedProject, source.module()));
+            spec.setProjectStatus(mappedProject == null ? null
+                : source.projectStatus() != null ? source.projectStatus()
+                    : projectStatuses.getOrDefault(mappedProject, "DEV"));
             spec.setReporter(trimToNull(source.reporter()));
             spec.setDueDate(normalizeDueDate(source.dueDate()));
             var dismissed = Boolean.TRUE.equals(source.dismissed());
@@ -527,11 +551,11 @@ public class WorkspaceDataAccess {
             .then();
     }
 
-    private Mono<Void> requireOwnedProject(String owner, String project) {
+    private Mono<WorkspaceProject> lookupProject(String owner, String project) {
         if (project == null || project.isBlank()) {
             return Mono.empty();
         }
-        return getProject(owner, project.trim()).then();
+        return getProject(owner, project.trim());
     }
 
     private Mono<Long> countTodosInProject(String owner, String project) {
@@ -549,14 +573,14 @@ public class WorkspaceDataAccess {
     }
 
     private WorkspaceProject buildProject(String owner, String title, List<String> modules,
-        Integer progress, String note, List<String> links, List<String> tags) {
+        String status, String note, List<String> links, List<String> tags) {
         var project = new WorkspaceProject();
         project.setMetadata(newMetadata());
         var spec = new WorkspaceProject.Spec();
         spec.setOwner(owner);
         spec.setTitle(title.trim());
         spec.setModules(normalizeModules(modules));
-        spec.setProgress(clampProgress(progress));
+        spec.setStatus(normalizeStatus(status));
         spec.setNote(trimToNull(note));
         spec.setLinks(normalizeLinks(links));
         spec.setTags(normalizeTags(tags));
@@ -777,11 +801,22 @@ public class WorkspaceDataAccess {
         }
     }
 
-    private static int clampProgress(Integer progress) {
-        if (progress == null) {
-            return 0;
-        }
-        return Math.max(0, Math.min(100, progress));
+    private static String statusOf(WorkspaceProject project) {
+        return ProjectView.statusOf(project);
+    }
+
+    private static String normalizeStatus(String status) {
+        return status == null || status.isBlank() ? "NOT_STARTED" : status;
+    }
+
+    private static String statusLabel(String status) {
+        return switch (status) {
+            case "NOT_STARTED" -> "未开始";
+            case "TEST" -> "测试中";
+            case "RELEASED" -> "已上线";
+            case "ACCEPTED" -> "已验收";
+            default -> "开发中";
+        };
     }
 
     private static String trimToNull(String value) {

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { Project, ProjectPayload } from '../types'
+import { DEFAULT_PROJECT_STATUS, PROJECT_STATUSES, projectStatusOf } from '../projectStatus'
+import type { ProjectStatus } from '../projectStatus'
 import Modal from './ui/Modal.vue'
 import Button from './ui/Button.vue'
 import Input from './ui/Input.vue'
+import Select from './ui/Select.vue'
 import Textarea from './ui/Textarea.vue'
 import ModuleEditor from './ModuleEditor.vue'
 
@@ -20,7 +23,8 @@ const emit = defineEmits<{
 
 const title = ref(props.project?.title ?? '')
 const modules = ref<string[]>(props.project ? [...props.project.modules] : [])
-const progress = ref(props.project?.progress ?? 0)
+const status = ref<ProjectStatus>(
+  props.project ? projectStatusOf(props.project) : DEFAULT_PROJECT_STATUS)
 const note = ref(props.project?.note ?? '')
 const linksText = ref((props.project?.links ?? []).join('\n'))
 const editor = ref<InstanceType<typeof ModuleEditor> | null>(null)
@@ -41,7 +45,6 @@ function submit(): void {
     localError.value = '请输入项目名称'
     return
   }
-  const progressValue = Math.max(0, Math.min(100, Number(progress.value) || 0))
   const links = linksText.value
     .split(/\r?\n/)
     .map((item) => item.trim())
@@ -58,7 +61,7 @@ function submit(): void {
   emit('save', {
     title: titleValue,
     modules: [...modules.value],
-    progress: progressValue,
+    status: status.value,
     note: note.value.trim() || null,
     links,
     tags: props.project?.tags ?? []
@@ -80,24 +83,12 @@ function submit(): void {
       </div>
 
       <label class="ws-field flex flex-col gap-1.5">
-        <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">进度</span>
-        <div class="flex items-center gap-3">
-          <input
-            v-model.number="progress"
-            type="range"
-            min="0"
-            max="100"
-            class="h-11 flex-1 accent-[#007AFF]"
-          />
-          <input
-            v-model.number="progress"
-            type="number"
-            min="0"
-            max="100"
-            class="h-11 w-20 rounded-xl border border-black/[0.08] bg-white/80 px-3 text-[14px] tabular-nums outline-none transition-[border-color,box-shadow] duration-200 ease-[var(--ws-ease)] focus:border-[#007AFF]/50 focus:ring-[3px] focus:ring-[#007AFF]/15 dark:border-white/10 dark:bg-white/[0.06]"
-          />
-          <span class="text-[13px] text-[#6e6e73] dark:text-[#98989d]">%</span>
-        </div>
+        <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">状态</span>
+        <Select v-model="status" class="ws-project-status">
+          <option v-for="item in PROJECT_STATUSES" :key="item.value" :value="item.value">
+            {{ item.label }}
+          </option>
+        </Select>
       </label>
 
       <label class="ws-field flex flex-col gap-1.5">

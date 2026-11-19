@@ -1,10 +1,12 @@
+import type { ProjectStatus } from './projectStatus'
+
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW'
 
 export interface Project {
   name: string
   title: string
   modules: string[]
-  progress: number
+  status: ProjectStatus
   note: string | null
   links: string[]
   tags: string[]
@@ -17,6 +19,7 @@ export interface Todo {
   priority: Priority
   project: string | null
   module: string | null
+  projectStatus: ProjectStatus | null
   reporter: string | null
   dueDate: string | null
   completed: boolean
@@ -51,7 +54,7 @@ export interface TodoPayload {
 export interface ProjectPayload {
   title: string
   modules: string[]
-  progress?: number
+  status?: ProjectStatus
   note?: string | null
   links?: string[]
   tags?: string[]
@@ -162,6 +165,7 @@ export interface BackupTodo {
   priority: Priority | null
   project: string | null
   module: string | null
+  projectStatus: ProjectStatus | null
   reporter: string | null
   dueDate: string | null
   completed: boolean | null
@@ -175,7 +179,7 @@ export interface BackupProject {
   name: string | null
   title: string
   modules: string[] | null
-  progress: number | null
+  status: ProjectStatus | null
   note: string | null
   links: string[] | null
   tags: string[] | null

@@ -13,6 +13,7 @@ import {
   updateNote
 } from '../api'
 import type { Note, NotePayload, NoteSummary, NoteTemplate, Project, Todo } from '../types'
+import { PROJECT_STATUSES, projectStatusOf } from '../projectStatus'
 import { copyText, excerpt, formatDateTime, messageOf } from '../utils'
 import { takeNotesTarget, takeSearchTarget, setSearchTarget } from '../searchTarget'
 import type { TodosTarget } from '../searchTarget'
@@ -117,8 +118,7 @@ const projectOptions = computed(() => [
 
 const projectStatusOptions = [
   { value: '', label: '全部状态' },
-  { value: 'open', label: '未完成项目' },
-  { value: 'done', label: '已完成项目' }
+  ...PROJECT_STATUSES.map((item) => ({ value: item.value, label: item.label }))
 ]
 
 const moduleSelectOptions = computed(() => [
@@ -135,8 +135,8 @@ const todoSelectOptions = computed(() => [
   }))
 ])
 
-const projectProgressOf = computed(() =>
-  new Map(projects.value.map((project) => [project.name, project.progress])))
+const projectStatusMap = computed(() =>
+  new Map(projects.value.map((project) => [project.name, projectStatusOf(project)])))
 
 const hasFilters = computed(() => keyword.value.trim() !== ''
   || projectFilter.value !== '' || projectStatus.value !== ''
@@ -156,9 +156,8 @@ function matchesFilters(note: NoteSummary): boolean {
     }
   }
   if (projectStatus.value) {
-    const progress = note.project ? projectProgressOf.value.get(note.project) : undefined
-    if (progress == null) return false
-    if (projectStatus.value === 'done' ? progress < 100 : progress >= 100) return false
+    const status = note.project ? projectStatusMap.value.get(note.project) : undefined
+    if (status == null || status !== projectStatus.value) return false
   }
   if (moduleFilter.value) {
     if (moduleFilter.value === '__none__') {
