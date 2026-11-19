@@ -730,7 +730,17 @@ function openTodoDetail(todo: Todo): void {
                 @contextmenu.prevent.stop="emit('todoContextmenu', $event, todo)"
                 @click="openTodoDetail(todo)"
               >
-                <span class="block text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]">{{ todo.title }}</span>
+                <span class="block text-[13px] text-[#1d1d1f] dark:text-[#f5f5f7]">
+                  {{ todo.title }}
+                  <span
+                    v-if="group.key === 'created' && todo.completed"
+                    class="ws-day-detail-mark ml-1.5 inline-flex items-center rounded-full bg-[#34C759]/[0.12] px-1.5 py-px align-[2px] text-[10px] font-medium text-[#248A3D] dark:bg-[#30D158]/[0.16] dark:text-[#30D158]"
+                  >完成</span>
+                  <span
+                    v-else-if="group.key === 'created' && todo.dismissed"
+                    class="ws-day-detail-mark ml-1.5 inline-flex items-center rounded-full bg-black/[0.06] px-1.5 py-px align-[2px] text-[10px] font-medium text-[#6e6e73] dark:bg-white/[0.10] dark:text-[#98989d]"
+                  >不用处理</span>
+                </span>
                 <span
                   v-if="detailMeta(todo)"
                   class="mt-0.5 block text-[11px] text-[#8e8e93] dark:text-[#98989d]"
