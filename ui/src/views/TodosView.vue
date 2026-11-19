@@ -105,6 +105,9 @@ const formOpen = ref(false)
 const editing = ref<Todo | null>(null)
 const presetCreatedAt = ref('')
 const createScope = ref<{ project: string; module: string } | null>(null)
+const viewRoot = ref<HTMLElement | null>(null)
+let pressStart: { x: number; y: number } | null = null
+let dragSincePress = false
 const saving = ref(false)
 const pendingDelete = ref<Todo | null>(null)
 const busy = ref<string | null>(null)
@@ -1983,9 +1986,38 @@ function askDelete(todo: Todo): void {
   persistCache()
 }
 
+// 浏览器会把「按下 → 移动 → 松开」也派发成 click，拖选文字或滑动时
+// 会误触发行/分组头的打开与筛选；移动超过阈值后吞掉这次 click。
+function onViewPointerDown(event: PointerEvent): void {
+  if (event.button !== 0 || !viewRoot.value?.contains(event.target as Node)) return
+  pressStart = { x: event.clientX, y: event.clientY }
+  dragSincePress = false
+}
+
+function onViewPointerMove(event: PointerEvent): void {
+  if (!pressStart || dragSincePress) return
+  if (Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > 5) {
+    dragSincePress = true
+  }
+}
+
+function onViewPointerUp(): void {
+  pressStart = null
+}
+
+function onViewClickCapture(event: MouseEvent): void {
+  if (!dragSincePress) return
+  dragSincePress = false
+  event.preventDefault()
+  event.stopPropagation()
+}
+
 onMounted(() => {  void load({ silent: Boolean(cachedTodos) })
   document.addEventListener('pointerdown', handleMenuPointerDown)
   document.addEventListener('keydown', handleMenuKeydown)
+  window.addEventListener('pointerdown', onViewPointerDown, true)
+  window.addEventListener('pointermove', onViewPointerMove, true)
+  window.addEventListener('pointerup', onViewPointerUp, true)
 })
 
 onUnmounted(() => {
@@ -1993,11 +2025,14 @@ onUnmounted(() => {
   pendingUndo.value = null
   document.removeEventListener('pointerdown', handleMenuPointerDown)
   document.removeEventListener('keydown', handleMenuKeydown)
+  window.removeEventListener('pointerdown', onViewPointerDown, true)
+  window.removeEventListener('pointermove', onViewPointerMove, true)
+  window.removeEventListener('pointerup', onViewPointerUp, true)
 })
 </script>
 
 <template>
-  <div class="ws-view">
+  <div ref="viewRoot" class="ws-view" @click.capture="onViewClickCapture">
     <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-2 flex flex-wrap items-center gap-1.5">
       <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
