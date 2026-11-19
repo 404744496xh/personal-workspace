@@ -2082,8 +2082,8 @@ onUnmounted(() => {
 <template>
   <div ref="viewRoot" class="ws-view" @click.capture="onViewClickCapture">
     <template v-if="!toolsCollapsed">
-    <div class="ws-toolbar mb-2 flex flex-wrap items-center gap-1.5">
-      <div class="relative min-w-[130px] flex-1 sm:max-w-[300px]">
+    <div class="ws-toolbar mb-2 flex flex-wrap items-center gap-1">
+      <div class="relative min-w-[120px] flex-1 sm:max-w-[300px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -2350,7 +2350,7 @@ onUnmounted(() => {
           ></span>
         </button>
       </div>
-      <div class="ml-auto flex items-center gap-2">
+      <div class="ml-auto flex items-center gap-1">
         <div
           class="ws-utility-group inline-flex h-11 shrink-0 items-center rounded-full border border-black/[0.08] bg-white/80 dark:border-white/10 dark:bg-white/[0.06]"
         >
@@ -2383,6 +2383,44 @@ onUnmounted(() => {
                 />
                 <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
                 <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </span>
+          </Button>
+          <span class="h-5 w-px shrink-0 bg-black/[0.07] dark:bg-white/10" aria-hidden="true"></span>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="ws-select-toggle rounded-full"
+            :aria-label="selecting ? '退出多选' : '多选'"
+            :title="selecting ? '退出多选' : '多选'"
+            :aria-pressed="selecting"
+            @click="toggleSelecting"
+          >
+            <span
+              class="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200"
+              :class="selecting ? 'bg-[#007AFF]/[0.12] text-[#007AFF] dark:bg-[#0A84FF]/[0.20] dark:text-[#64B5FF]' : ''"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.4" />
+                <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            class="ws-view-mode-toggle rounded-full"
+            :aria-label="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
+            :title="viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图'"
+            @click="toggleViewMode"
+          >
+            <span class="flex h-8 w-8 items-center justify-center rounded-full">
+              <svg v-if="viewMode === 'flat'" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.4" stroke="currentColor" stroke-width="1.3" />
+                <rect x="2.5" y="9" width="11" height="4.5" rx="1.4" stroke="currentColor" stroke-width="1.3" />
+              </svg>
+              <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
               </svg>
             </span>
           </Button>
@@ -2430,30 +2468,6 @@ onUnmounted(() => {
             role="menu"
             aria-label="更多操作"
           >
-            <button
-              type="button"
-              role="menuitem"
-              class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
-              @click="moreOpen = false; toggleSelecting()"
-            >
-              <svg class="h-4 w-4 shrink-0 text-[#6e6e73] dark:text-[#98989d]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <rect x="2.5" y="2.5" width="11" height="11" rx="2.5" stroke="currentColor" stroke-width="1.4" />
-                <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              {{ selecting ? '退出多选' : '多选' }}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
-              @click="moreOpen = false; toggleViewMode()"
-            >
-              <svg class="h-4 w-4 shrink-0 text-[#6e6e73] dark:text-[#98989d]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-              </svg>
-              {{ viewMode === 'flat' ? '切换为分组视图' : '切换为列表视图' }}
-            </button>
-            <div class="my-1 h-px bg-black/[0.06] dark:bg-white/[0.08]"></div>
             <button
               type="button"
               role="menuitem"
