@@ -140,7 +140,7 @@ const newModuleName = ref('')
 const savingModule = ref(false)
 const moduleError = ref('')
 
-const sortField = ref<SortField>('created')
+const sortField = ref<SortField>(status.value === 'DONE' ? 'completed' : 'created')
 const viewMode = ref<TodoViewMode>(
   localStorage.getItem(VIEW_MODE_KEY) === 'flat' ? 'flat' : 'grouped')
 const sortDir = ref<SortDirection>('desc')
@@ -426,6 +426,11 @@ watch(activeProject, () => {
   }
 })
 
+watch(status, (value) => {
+  if (value === 'DONE' && sortField.value === 'created') sortField.value = 'completed'
+  else if (value === 'OPEN' && sortField.value === 'completed') sortField.value = 'created'
+})
+
 function clearScopeFilters(): void {
   clearSelection()
   projectStatus.value = ''
@@ -662,12 +667,21 @@ function buildGroups(todos: Todo[], projectList: Project[],
     buckets.set(projectName, modules)
   }
   const result: ProjectGroup[] = []
-  for (const project of projectList) {
-    const modules = buckets.get(project.name)
-    const expanded = project.name === expandProject
-    if (!showFinished.value && hiddenProjectNames.value.has(project.name) && !expanded) continue
-    if (!modules && !expanded && !includeEmptyProjects) continue
-    const moduleBuckets = modules ?? new Map<string, Todo[]>()
+  const emitted = new Set<string>()
+  // 当前筛选下有待办的项目按待办排序顺序靠前，空项目补在末尾
+  for (const [projectName, moduleBuckets] of buckets) {
+    if (projectName === '') {
+      result.push({
+        key: '',
+        title: '未分类',
+        count: countTodos(moduleBuckets),
+        status: null,
+        modules: buildModuleGroups(moduleBuckets, [], false)
+      })
+      continue
+    }
+    const project = projectMap.get(projectName)
+    if (!project) continue
     result.push({
       key: project.name,
       title: project.title,
@@ -676,18 +690,22 @@ function buildGroups(todos: Todo[], projectList: Project[],
       modules: buildModuleGroups(
         moduleBuckets,
         project.modules,
-        expanded || includeEmptyProjects
+        includeEmptyProjects || project.name === expandProject
       )
     })
+    emitted.add(project.name)
   }
-  const unclassified = buckets.get('')
-  if (unclassified) {
+  for (const project of projectList) {
+    if (emitted.has(project.name)) continue
+    const expanded = project.name === expandProject
+    if (!showFinished.value && hiddenProjectNames.value.has(project.name) && !expanded) continue
+    if (!expanded && !includeEmptyProjects) continue
     result.push({
-      key: '',
-      title: '未分类',
-      count: countTodos(unclassified),
-      status: null,
-      modules: buildModuleGroups(unclassified, [], false)
+      key: project.name,
+      title: project.title,
+      count: 0,
+      status: projectStatusOf(project),
+      modules: buildModuleGroups(new Map(), project.modules, expanded || includeEmptyProjects)
     })
   }
   return result
@@ -703,16 +721,17 @@ function buildModuleGroups(bucket: Map<string, Todo[]>, preferred: string[],
   includeEmpty: boolean): ModuleGroup[] {
   const result: ModuleGroup[] = []
   const used = new Set<string>()
-  for (const name of preferred) {
-    const todos = bucket.get(name)
-    if (todos || includeEmpty) {
-      result.push({ key: name, label: name, todos: todos ?? [] })
-      used.add(name)
-    }
-  }
+  // 当前筛选下有待办的模块按待办排序顺序靠前
   for (const [name, todos] of bucket) {
-    if (name === '' || used.has(name)) continue
+    if (name === '') continue
     result.push({ key: name, label: name, todos })
+    used.add(name)
+  }
+  if (includeEmpty) {
+    for (const name of preferred) {
+      if (used.has(name)) continue
+      result.push({ key: name, label: name, todos: [] })
+    }
   }
   const unassigned = bucket.get('')
   if (unassigned) {
