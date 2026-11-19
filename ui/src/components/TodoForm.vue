@@ -42,6 +42,10 @@ const selectedProjectStatus = computed(() => {
   const found = props.projects.find((item) => item.name === project.value)
   return found ? projectStatusMeta(projectStatusOf(found)) : null
 })
+const recordedProjectStatus = computed(() => {
+  if (!props.todo || props.todo.project !== project.value || !props.todo.projectStatus) return null
+  return projectStatusMeta(props.todo.projectStatus)
+})
 const moduleOptions = computed(() => {
   const options = [...projectModules.value]
   if (module.value && !options.includes(module.value)) {
@@ -168,7 +172,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </label>
         </div>
         <p class="ws-hint -mt-1 text-[12px] text-[#6e6e73] dark:text-[#98989d]">
-          模块可直接输入新模块，保存后自动加入项目。<template v-if="selectedProjectStatus">项目当前状态「{{ selectedProjectStatus.label }}」会随待办一起记录。</template>
+          模块可直接输入新模块，保存后自动加入项目。<template v-if="recordedProjectStatus">该待办记录的项目状态为「{{ recordedProjectStatus.label }}」<template v-if="selectedProjectStatus && selectedProjectStatus.value !== recordedProjectStatus.value">，项目当前为「{{ selectedProjectStatus.label }}」</template>。</template><template v-else-if="selectedProjectStatus">项目当前状态「{{ selectedProjectStatus.label }}」会随待办一起记录。</template>
         </p>
 
         <div class="ws-field-row grid grid-cols-1 gap-3 sm:grid-cols-2">
