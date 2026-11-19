@@ -204,6 +204,10 @@ AI 识别走页面接口：`POST /workspace/api/ai-import`，body `{text}`（≤
 
 错误统一为 `{"error":{"code":"...","message":"..."}}`：400 参数错误、401 未登录、404 不存在或非本人、409 冲突、413 请求体过大、500 服务异常。
 
+## MCP（本地 stdio）
+
+`mcp/` 提供本地 stdio MCP 服务，让 Qoder、Claude Desktop 等 AI 客户端查询和改动待办、项目、笔记与命令。个人令牌、构建方式与客户端配置见 [mcp/README.md](mcp/README.md)。
+
 ## 数据模型
 
 4 个 `workspace.halo.run/v1alpha1` CRD，`spec.owner` 存 Halo 用户名：
