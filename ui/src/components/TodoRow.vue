@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Todo } from '../types'
+import type { ProjectStatus } from '../projectStatus'
+import { projectStatusMeta } from '../projectStatus'
 import { formatDateTime, priorityClass, priorityLabel, todayString } from '../utils'
 import Button from './ui/Button.vue'
 
@@ -11,8 +14,11 @@ const props = defineProps<{
   bulkBusy: boolean
   noteBusy: boolean
   scope?: string
+  projectStatus?: ProjectStatus | null
   focused?: boolean
 }>()
+
+const statusMeta = computed(() => (props.projectStatus ? projectStatusMeta(props.projectStatus) : null))
 
 const emit = defineEmits<{
   select: []
@@ -115,6 +121,14 @@ function isOverdue(): boolean {
           title="按该项目和模块筛选"
           @click.stop="emit('filter')"
         >{{ scope }}</button>
+        <span
+          v-if="statusMeta"
+          class="ws-todo-project-status inline-flex items-center gap-1"
+          :title="todo.projectStatus ? '该待办创建时记录的项目状态' : '该待办未记录创建时状态，显示项目当前状态'"
+        >
+          <span class="h-1.5 w-1.5 rounded-full" :class="statusMeta.dot" aria-hidden="true"></span>
+          项目状态 {{ statusMeta.label }}
+        </span>
         <span v-if="todo.reporter" class="ws-reporter">姓名 {{ todo.reporter }}</span>
         <span
           v-if="todo.dueDate"
