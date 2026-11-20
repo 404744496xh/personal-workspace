@@ -119,12 +119,40 @@ public class WorkspaceEndpoint implements CustomEndpoint {
             .POST("/report", this::generateReport)
             .GET("/backup", this::exportBackupZip)
             .POST("/backup", this::importBackupZip)
+            .GET("/changes", this::changes)
             .build();
     }
 
     @Override
     public GroupVersion groupVersion() {
         return new GroupVersion("api.workspace.halo.run", "v1alpha1");
+    }
+
+    private Mono<ServerResponse> changes(ServerRequest request) {
+        return handle(currentUser.requireUsername().flatMap(username -> {
+            var since = longParam(request, "since", 0, 0);
+            var limit = intParam(request, "limit", 200, 1, 500);
+            return dataAccess.changes(username, since, limit)
+                .flatMap(WorkspaceEndpoint::okJson);
+        }));
+    }
+
+    private static long longParam(ServerRequest request, String name, long defaultValue,
+        long min) {
+        var raw = request.queryParam(name).orElse(null);
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        long value;
+        try {
+            value = Long.parseLong(raw.trim());
+        } catch (NumberFormatException error) {
+            throw ApiException.badRequest(name + " 必须是整数");
+        }
+        if (value < min) {
+            throw ApiException.badRequest(name + " 超出范围");
+        }
+        return value;
     }
 
     private Mono<ServerResponse> generateReport(ServerRequest request) {

@@ -49,6 +49,12 @@ public class PersonalWorkspacePlugin extends BasePlugin {
         schemeManager.register(WorkspaceNote.class, specs ->
             specs.add(IndexSpecs.<WorkspaceNote, String>single("spec.owner", String.class)
                 .indexFunc(note -> note.getSpec().getOwner())));
+        schemeManager.register(WorkspaceSyncLog.class, specs -> {
+            specs.add(IndexSpecs.<WorkspaceSyncLog, String>single("spec.owner", String.class)
+                .indexFunc(log -> log.getSpec().getOwner()));
+            specs.add(IndexSpecs.<WorkspaceSyncLog, Long>single("spec.seq", Long.class)
+                .indexFunc(log -> log.getSpec().getSeq()));
+        });
     }
 
     @Override
@@ -57,5 +63,6 @@ public class PersonalWorkspacePlugin extends BasePlugin {
         schemeManager.unregister(Scheme.buildFromType(WorkspaceProject.class));
         schemeManager.unregister(Scheme.buildFromType(WorkspaceQuickCmd.class));
         schemeManager.unregister(Scheme.buildFromType(WorkspaceNote.class));
+        schemeManager.unregister(Scheme.buildFromType(WorkspaceSyncLog.class));
     }
 }

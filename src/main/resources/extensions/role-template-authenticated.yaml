@@ -10,5 +10,5 @@ metadata:
     rbac.authorization.halo.run/module: "个人工作台"
 rules:
   - apiGroups: ["api.workspace.halo.run"]
-    resources: ["todos", "projects", "projects/modules", "commands", "notes", "images", "search", "report", "backup"]
+    resources: ["todos", "projects", "projects/modules", "commands", "notes", "images", "search", "report", "backup", "changes"]
     verbs: ["get", "list", "create", "update", "delete"]

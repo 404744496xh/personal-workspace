@@ -2,14 +2,18 @@ package asia.xiahan.workspace;
 
 import asia.xiahan.workspace.dto.BackupImportResult;
 import asia.xiahan.workspace.dto.BackupPayload;
+import asia.xiahan.workspace.dto.ChangeEntry;
+import asia.xiahan.workspace.dto.ChangesResponse;
 import asia.xiahan.workspace.dto.ModuleRenameRequest;
 import asia.xiahan.workspace.dto.NoteUpsertRequest;
+import asia.xiahan.workspace.dto.NoteView;
 import asia.xiahan.workspace.dto.ProjectUpsertRequest;
 import asia.xiahan.workspace.dto.ProjectView;
 import asia.xiahan.workspace.dto.QuickCmdUpsertRequest;
 import asia.xiahan.workspace.dto.SearchHit;
 import asia.xiahan.workspace.dto.TodoQuery;
 import asia.xiahan.workspace.dto.TodoUpsertRequest;
+import asia.xiahan.workspace.dto.TodoView;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -17,6 +21,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,6 +44,8 @@ import run.halo.app.extension.PageRequestImpl;
 import run.halo.app.extension.ReactiveExtensionClient;
 import run.halo.app.extension.index.query.Condition;
 import run.halo.app.extension.index.query.Queries;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @Component
 public class WorkspaceDataAccess {
@@ -51,6 +58,16 @@ public class WorkspaceDataAccess {
     private static final int SEARCH_LIMIT_PER_TYPE = 8;
     private static final Pattern POST_NAME =
         Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?");
+
+    private static final java.util.concurrent.atomic.AtomicLong LAST_SYNC_SEQ =
+        new java.util.concurrent.atomic.AtomicLong(0);
+    private static final JsonMapper SYNC_JSON = JsonMapper.builder().build();
+    private static final int SYNC_LOG_KEEP = 2000;
+    private static final int SYNC_LOG_TRIM_BATCH = 200;
+
+    private static long nextSyncSeq() {
+        return LAST_SYNC_SEQ.updateAndGet(prev -> Math.max(prev + 1, System.currentTimeMillis()));
+    }
 
     private final ReactiveExtensionClient client;
 
@@ -103,7 +120,9 @@ public class WorkspaceDataAccess {
                 spec.setProjectStatus(project.map(WorkspaceDataAccess::statusOf).orElse(null));
                 todo.setSpec(spec);
                 return client.create(todo);
-            });
+            })
+            .flatMap(todo -> appendChange(owner, "todo", todo.getMetadata().getName(), false,
+                Instant.now().toString(), serialize(TodoView.of(todo))).thenReturn(todo));
     }
 
     public Mono<WorkspaceTodo> updateTodo(String owner, String name, TodoUpsertRequest request) {
@@ -124,12 +143,16 @@ public class WorkspaceDataAccess {
                     return todo;
                 }))
             .flatMap(client::update)
+            .flatMap(todo -> appendChange(owner, "todo", todo.getMetadata().getName(), false,
+                Instant.now().toString(), serialize(TodoView.of(todo))).thenReturn(todo))
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
 
     public Mono<Void> deleteTodo(String owner, String name) {
         return getTodo(owner, name)
-            .flatMap(todo -> client.delete(todo))
+            .flatMap(todo -> client.delete(todo).thenReturn(todo))
+            .flatMap(todo -> appendChange(owner, "todo", todo.getMetadata().getName(), true,
+                Instant.now().toString(), null))
             .then();
     }
 
@@ -147,7 +170,10 @@ public class WorkspaceDataAccess {
     public Mono<WorkspaceProject> createProject(String owner, ProjectUpsertRequest request) {
         return Mono.fromSupplier(() -> buildProject(owner, request.title(), request.modules(),
                 request.status(), request.note(), request.links(), request.tags()))
-            .flatMap(client::create);
+            .flatMap(client::create)
+            .flatMap(project -> appendChange(owner, "project", project.getMetadata().getName(),
+                false, Instant.now().toString(), serialize(ProjectView.of(project)))
+                .thenReturn(project));
     }
 
     public Mono<WorkspaceProject> updateProject(String owner, String name,
@@ -171,6 +197,9 @@ public class WorkspaceDataAccess {
                 }
                 return client.update(project);
             })
+            .flatMap(project -> appendChange(owner, "project", project.getMetadata().getName(),
+                false, Instant.now().toString(), serialize(ProjectView.of(project)))
+                .thenReturn(project))
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
 
@@ -226,8 +255,10 @@ public class WorkspaceDataAccess {
                         return Mono.error(ApiException.conflict(
                             "该项目下还有 " + count + " 个待办，请先移动或删除待办"));
                     }
-                    return client.delete(project);
+                    return client.delete(project).thenReturn(project);
                 }))
+            .flatMap(project -> appendChange(owner, "project", project.getMetadata().getName(),
+                true, Instant.now().toString(), null))
             .then();
     }
 
@@ -286,7 +317,10 @@ public class WorkspaceDataAccess {
         applyNote(spec, request);
         spec.setUpdatedAt(Instant.now().toString());
         note.setSpec(spec);
-        return client.create(note);
+        return client.create(note)
+            .flatMap(created -> appendChange(owner, "note", created.getMetadata().getName(),
+                false, Instant.now().toString(), serialize(NoteView.of(created)))
+                .thenReturn(created));
     }
 
     public Mono<WorkspaceNote> updateNote(String owner, String name, NoteUpsertRequest request) {
@@ -296,6 +330,9 @@ public class WorkspaceDataAccess {
                 note.getSpec().setUpdatedAt(Instant.now().toString());
                 return client.update(note);
             })
+            .flatMap(updated -> appendChange(owner, "note", updated.getMetadata().getName(),
+                false, Instant.now().toString(), serialize(NoteView.of(updated)))
+                .thenReturn(updated))
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
 
@@ -306,6 +343,9 @@ public class WorkspaceDataAccess {
                 note.getSpec().setUpdatedAt(Instant.now().toString());
                 return client.update(note);
             })
+            .flatMap(updated -> appendChange(owner, "note", updated.getMetadata().getName(),
+                false, Instant.now().toString(), serialize(NoteView.of(updated)))
+                .thenReturn(updated))
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
 
@@ -333,12 +373,17 @@ public class WorkspaceDataAccess {
                 note.setSpec(spec);
                 return client.create(note);
             }))
+            .flatMap(note -> appendChange(owner, "note", note.getMetadata().getName(),
+                false, Instant.now().toString(), serialize(NoteView.of(note)))
+                .thenReturn(note))
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
 
     public Mono<Void> deleteNote(String owner, String name) {
         return getNote(owner, name)
-            .flatMap(note -> client.delete(note))
+            .flatMap(note -> client.delete(note).thenReturn(note))
+            .flatMap(note -> appendChange(owner, "note", note.getMetadata().getName(),
+                true, Instant.now().toString(), null))
             .then();
     }
 
@@ -593,6 +638,106 @@ public class WorkspaceDataAccess {
             .thenMany(Flux.fromIterable(notes).concatMap(client::create))
             .then(Mono.fromSupplier(() -> new BackupImportResult(todos.size(), projects.size(),
                 commands.size(), notes.size())));
+    }
+
+    private static String serialize(Object view) {
+        return SYNC_JSON.writeValueAsString(view);
+    }
+
+    /**
+     * Appends one change-log entry. A best-effort retention pass trims the oldest entries before
+     * writing when this owner already holds at least {@link #SYNC_LOG_KEEP} entries.
+     */
+    private Mono<WorkspaceSyncLog> appendChange(String owner, String kind, String name,
+        boolean deleted, String updatedAt, String payloadJson) {
+        return trimSyncLogs(owner).then(Mono.defer(() -> {
+            var log = new WorkspaceSyncLog();
+            log.setMetadata(newMetadata());
+            var spec = new WorkspaceSyncLog.Spec();
+            spec.setOwner(owner);
+            spec.setSeq(nextSyncSeq());
+            spec.setKind(kind);
+            spec.setName(name);
+            spec.setDeleted(deleted);
+            spec.setUpdatedAt(updatedAt);
+            spec.setPayloadJson(payloadJson);
+            log.setSpec(spec);
+            return client.create(log);
+        }));
+    }
+
+    /** Best-effort: when at or above the cap, delete the oldest batch before a new write. */
+    private Mono<Void> trimSyncLogs(String owner) {
+        var options = ListOptions.builder()
+            .fieldQuery(Queries.equal("spec.owner", owner))
+            .build();
+        return client.listAll(WorkspaceSyncLog.class, options, Sort.by("spec.seq"))
+            .count()
+            .flatMap(count -> {
+                if (count < SYNC_LOG_KEEP) {
+                    return Mono.empty();
+                }
+                return client.listAll(WorkspaceSyncLog.class, options, Sort.by("spec.seq"))
+                    .take(SYNC_LOG_TRIM_BATCH)
+                    .flatMap(client::delete)
+                    .then();
+            });
+    }
+
+    /**
+     * Incremental-sync query. cursor/oldestSeq are computed over ALL logs of the owner;
+     * the limit applies only to the returned change entries.
+     */
+    public Mono<ChangesResponse> changes(String owner, long since, int limit) {
+        var options = ListOptions.builder()
+            .fieldQuery(Queries.equal("spec.owner", owner))
+            .build();
+        return client.listAll(WorkspaceSyncLog.class, options, Sort.by("spec.seq"))
+            .collectList()
+            .map(all -> {
+                var cursor = all.stream()
+                    .mapToLong(log -> log.getSpec().getSeq())
+                    .max();
+                var oldestSeq = all.stream()
+                    .mapToLong(log -> log.getSpec().getSeq())
+                    .min();
+                var matching = all.stream()
+                    .filter(log -> log.getSpec().getSeq() >= since)
+                    .sorted(Comparator
+                        .comparingLong((WorkspaceSyncLog log) -> log.getSpec().getSeq())
+                        .thenComparing(log -> log.getSpec().getKind() == null
+                            ? "" : log.getSpec().getKind())
+                        .thenComparing(log -> log.getSpec().getName() == null
+                            ? "" : log.getSpec().getName()))
+                    .toList();
+                var hasMore = matching.size() > limit;
+                var entries = matching.stream()
+                    .limit(limit)
+                    .map(this::toChangeEntry)
+                    .toList();
+                return new ChangesResponse(
+                    cursor.isPresent() ? cursor.getAsLong() : null,
+                    oldestSeq.isPresent() ? oldestSeq.getAsLong() : null,
+                    hasMore,
+                    entries
+                );
+            });
+    }
+
+    private ChangeEntry toChangeEntry(WorkspaceSyncLog log) {
+        var spec = log.getSpec();
+        JsonNode payload = null;
+        if (!spec.isDeleted() && spec.getPayloadJson() != null) {
+            payload = SYNC_JSON.readTree(spec.getPayloadJson());
+        }
+        return new ChangeEntry(
+            spec.getSeq(),
+            spec.getKind(),
+            spec.getName(),
+            spec.isDeleted(),
+            spec.getUpdatedAt(),
+            payload
+        );
     }
 
     private <E extends AbstractExtension> Flux<E> listOwned(Class<E> type, String owner,
