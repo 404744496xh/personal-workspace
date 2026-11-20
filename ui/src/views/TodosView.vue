@@ -747,15 +747,15 @@ function buildModuleGroups(bucket: Map<string, Todo[]>, preferred: string[],
     result.push({ key: name, label: name, todos })
     used.add(name)
   }
+  const unassigned = bucket.get('')
+  if (unassigned) {
+    result.push({ key: '', label: '', todos: unassigned })
+  }
   if (includeEmpty) {
     for (const name of preferred) {
       if (used.has(name)) continue
       result.push({ key: name, label: name, todos: [] })
     }
-  }
-  const unassigned = bucket.get('')
-  if (unassigned) {
-    result.push({ key: '', label: '', todos: unassigned })
   }
   return result
 }
