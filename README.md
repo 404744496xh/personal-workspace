@@ -87,6 +87,9 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 - Mermaid 代码块（`` ```mermaid ``）直接渲染为 SVG，样式与前台文章一致，切换深浅色时按主题重绘
 - 支持表格、行内 HTML 预览；粘贴或拖入图片自动上传为站点附件并插入 Markdown，SVG（含内联标记 / data URI / 文件）自动栅格化为 PNG；进入笔记页即预加载 Mermaid 脚本，打开含图表的笔记时直接渲染
 - 可关联项目、模块与多个待办；「属性」弹窗编辑关联，不打断正文
+- 笔记页「导入文章」只列当前账号名下的 Halo 文章，优先取 Markdown 原文；重复导入会更新已关联的笔记，项目 / 待办等本地属性保持不变
+- 笔记编辑器与右键菜单可「存为文章草稿」，默认保存为草稿并记录关联；已关联时改为更新草稿与标题，发布仍在 Halo 控制台确认
+- 文章与笔记共用站点附件地址，图片无需搬运；存稿 / 导入沿用 Halo 控制台的文章权限，没有发文权限的账号会收到明确提示
 - 点击卡片直接打开编辑；卡片上的项目 / 模块 / 待办标签可跳到项目页、该模块待办或具体待办（多个待办时先选一个）
 - 搜索与筛选收在一行：项目、项目状态（未开始 / 开发中 / 测试中 / 已上线 / 已验收）、模块、待办支持输入搜索匹配，可组合过滤
 
@@ -95,7 +98,7 @@ AI 识别导入（需在插件设置中配置 OpenAI 兼容接口）：
 ### 搜索与备份
 
 - 左侧栏底部全局搜索跨待办、项目、命令、笔记，点击结果跳到对应页面并带入关键词
-- 备份导出待办、项目、命令与笔记为 JSON（笔记模板单独保存，不参与备份）；导入支持合并与覆盖（覆盖前二次确认），保留完成时间、不用处理状态、项目状态与笔记关联
+- 备份使用 ZIP 完整备份：附带笔记引用的图片附件，流式下载，导入时重新上传并改写图片地址；支持合并与覆盖（覆盖前二次确认），保留完成时间、不用处理状态、项目状态、待办创建时间与笔记关联（含关联文章）
 
 ### 外观与操作
 
@@ -157,7 +160,7 @@ pnpm run build    # 先复制 Vditor 静态资源，再构建 ui/build/dist
 - **所有者隔离**：唯一数据访问层 `WorkspaceDataAccess`，所有查询附加 `spec.owner = 当前用户`；请求体里的 `owner` 一律丢弃
 - **权限**：业务读写全部走自定义 `CustomEndpoint`；角色模板 `personal-workspace-authenticated` 只聚合到已登录角色，不授予 automatic CRD 接口权限
 - **CSRF**：沿用 Halo 原生机制，`/apis` 路径由 Halo 的 CsrfConfigurer 豁免，依赖 `SameSite` 会话 Cookie
-- **校验**：DTO 显式校验；请求体上限 待办 / 项目 / 命令 64KB、笔记 256KB、图片 8MB、备份 8MB；笔记正文 ≤200000 字符
+- **校验**：DTO 显式校验；请求体上限 待办 / 项目 / 命令 64KB、笔记 256KB、图片 8MB、ZIP 备份 512MB；笔记正文 ≤200000 字符
 - **破坏性操作**：所有 DELETE 必须带 `confirm=true`，备份覆盖导入必须传 `replace=true` 并二次确认
 - **内容安全**：笔记图片只接受 `image/*`；项目链接只放行 http/https 与站内相对路径
 - **已知边界**：Halo 超级管理员天然拥有全部 CRD 权限，这是平台设计；普通登录用户不具备
@@ -183,13 +186,13 @@ Base：`/apis/api.workspace.halo.run/v1alpha1`，所有响应带 `Cache-Control:
 | PUT | `/commands/{name}` | 更新命令 |
 | DELETE | `/commands/{name}?confirm=true` | 删除命令 |
 | GET | `/notes` | 笔记列表，含摘要、关联与更新时间 |
-| POST | `/notes` | 创建笔记 |
-| PUT | `/notes/{name}` | 更新笔记，服务端刷新 `updatedAt` |
+| POST | `/notes` | 创建笔记；带 `linkPost=<postName>` 时按文章去重导入或更新 |
+| PUT | `/notes/{name}` | 更新笔记，服务端刷新 `updatedAt`；带 `linkPost=<postName>` 时同时关联文章 |
 | DELETE | `/notes/{name}?confirm=true` | 删除笔记 |
 | POST | `/images` | 上传笔记图片（multipart `file`），返回 `{url}` |
 | GET | `/search?q=` | 跨待办 / 项目 / 命令 / 笔记搜索，每类最多 8 条 |
-| GET | `/backup` | 导出当前用户全部数据 |
-| POST | `/backup?replace=true\|false` | 导入备份 |
+| GET | `/backup` | 导出完整 ZIP（数据 + 笔记图片附件） |
+| POST | `/backup?replace=true\|false` | 导入完整 ZIP 备份（multipart `file`） |
 
 AI 识别走页面接口：`POST /workspace/api/ai-import`，body `{text}`（≤20000 字符），会话鉴权并校验 CSRF；未配置返回 503，模型报错 502，超时 504。
 

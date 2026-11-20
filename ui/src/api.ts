@@ -1,7 +1,6 @@
 import type {
   AiImportResponse,
   BackupCounts,
-  BackupData,
   Note,
   NotePayload,
   NoteSummary,
@@ -191,6 +190,27 @@ export function updateNote(name: string, payload: NotePayload): Promise<Note> {
   })
 }
 
+export function importNoteFromPost(postName: string, payload: NotePayload): Promise<Note> {
+  return request(`/notes?linkPost=${encodeURIComponent(postName)}`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function linkNotePost(
+  name: string,
+  payload: NotePayload,
+  postName: string
+): Promise<Note> {
+  return request(
+    `/notes/${encodeURIComponent(name)}?linkPost=${encodeURIComponent(postName)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    }
+  )
+}
+
 export function deleteNote(name: string): Promise<void> {
   return request(`/notes/${encodeURIComponent(name)}?confirm=true`, {
     method: 'DELETE'
@@ -208,14 +228,42 @@ export function searchWorkspace(keyword: string): Promise<SearchResponse> {
   return request(`/search?${query.toString()}`)
 }
 
-export function exportBackup(): Promise<BackupData> {
-  return request('/backup')
+export function backupZipUrl(): string {
+  return `${API_BASE}/backup`
 }
 
-export function importBackup(payload: BackupData, replace: boolean): Promise<BackupCounts> {
-  return request(`/backup?replace=${replace ? 'true' : 'false'}`, {
-    method: 'POST',
-    body: JSON.stringify(payload)
+export function importBackupZip(
+  file: File,
+  replace: boolean,
+  onProgress?: (percent: number) => void
+): Promise<BackupCounts> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/backup?replace=${replace ? 'true' : 'false'}`)
+    xhr.responseType = 'json'
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response as BackupCounts)
+        return
+      }
+      const body = xhr.response as
+        { error?: { code?: string; message?: string } } | null
+      reject(new ApiError(
+        xhr.status,
+        body?.error?.code ?? `HTTP_${xhr.status}`,
+        body?.error?.message ?? '导入失败，请稍后重试'
+      ))
+    }
+    xhr.onerror = () => reject(new ApiError(0, 'NETWORK', '网络错误，请稍后重试'))
+    xhr.onabort = () => reject(new ApiError(0, 'ABORTED', '导入已取消'))
+    const form = new FormData()
+    form.append('file', file)
+    xhr.send(form)
   })
 }
 

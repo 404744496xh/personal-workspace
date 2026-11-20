@@ -2,7 +2,6 @@ package asia.xiahan.workspace;
 
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 
-import asia.xiahan.workspace.dto.BackupPayload;
 import asia.xiahan.workspace.dto.ImageUploadResponse;
 import asia.xiahan.workspace.dto.ModuleRenameRequest;
 import asia.xiahan.workspace.dto.NoteUpsertRequest;
@@ -18,7 +17,12 @@ import asia.xiahan.workspace.dto.TodoListResponse;
 import asia.xiahan.workspace.dto.TodoQuery;
 import asia.xiahan.workspace.dto.TodoUpsertRequest;
 import asia.xiahan.workspace.dto.TodoView;
+import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -27,8 +31,12 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
@@ -54,30 +62,33 @@ public class WorkspaceEndpoint implements CustomEndpoint {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceEndpoint.class);
     private static final int MAX_BODY = 64 * 1024;
     private static final int MAX_NOTE_BODY = 256 * 1024;
-    private static final int MAX_BACKUP_BODY = 8 * 1024 * 1024;
+    private static final long MAX_BACKUP_ZIP_BYTES = 512L * 1024 * 1024;
     private static final int MAX_IMAGE_BYTES = 8 * 1024 * 1024;
     private static final String ATTACHMENT_POLICY = "default-policy";
+    private static final DateTimeFormatter BACKUP_STAMP =
+        DateTimeFormatter.ofPattern("yyyyMMdd-HHmm");
     private static final Pattern NAME_PATTERN =
         Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?");
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder()
         .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         .build();
-    // Backup files evolve across versions; tolerate removed/extra keys so old exports still import.
-    private static final JsonMapper BULK_MAPPER = JsonMapper.builder().build();
 
     private final CurrentUser currentUser;
     private final WorkspaceDataAccess dataAccess;
     private final Validator validator;
     private final AttachmentService attachmentService;
     private final ReportService reportService;
+    private final BackupZipService backupZipService;
 
     public WorkspaceEndpoint(CurrentUser currentUser, WorkspaceDataAccess dataAccess,
-        Validator validator, AttachmentService attachmentService, ReportService reportService) {
+        Validator validator, AttachmentService attachmentService, ReportService reportService,
+        BackupZipService backupZipService) {
         this.currentUser = currentUser;
         this.dataAccess = dataAccess;
         this.validator = validator;
         this.attachmentService = attachmentService;
         this.reportService = reportService;
+        this.backupZipService = backupZipService;
     }
 
     @Override
@@ -106,8 +117,8 @@ public class WorkspaceEndpoint implements CustomEndpoint {
             .POST("/images", this::uploadImage)
             .GET("/search", this::search)
             .POST("/report", this::generateReport)
-            .GET("/backup", this::exportBackup)
-            .POST("/backup", this::importBackup)
+            .GET("/backup", this::exportBackupZip)
+            .POST("/backup", this::importBackupZip)
             .build();
     }
 
@@ -299,18 +310,26 @@ public class WorkspaceEndpoint implements CustomEndpoint {
     }
 
     private Mono<ServerResponse> createNote(ServerRequest request) {
-        return handle(currentUser.requireUsername().flatMap(username ->
-            readBody(request, NoteUpsertRequest.class, MAX_NOTE_BODY)
-                .flatMap(body -> dataAccess.createNote(username, body))
+        return handle(currentUser.requireUsername().flatMap(username -> {
+            var post = optionalPost(request);
+            return readBody(request, NoteUpsertRequest.class, MAX_NOTE_BODY)
+                .flatMap(body -> post == null
+                    ? dataAccess.createNote(username, body)
+                    : dataAccess.importNoteFromPost(username, post, body))
                 .map(NoteView::of)
-                .flatMap(WorkspaceEndpoint::okJson)));
+                .flatMap(WorkspaceEndpoint::okJson);
+        }));
     }
 
     private Mono<ServerResponse> updateNote(ServerRequest request) {
         return handle(currentUser.requireUsername().flatMap(username -> {
             var name = requireValidName(request);
+            var post = optionalPost(request);
             return readBody(request, NoteUpsertRequest.class, MAX_NOTE_BODY)
                 .flatMap(body -> dataAccess.updateNote(username, name, body))
+                .flatMap(note -> post == null
+                    ? Mono.just(note)
+                    : dataAccess.linkNotePost(username, name, post))
                 .map(NoteView::of)
                 .flatMap(WorkspaceEndpoint::okJson);
         }));
@@ -403,20 +422,62 @@ public class WorkspaceEndpoint implements CustomEndpoint {
         }));
     }
 
-    private Mono<ServerResponse> exportBackup(ServerRequest request) {
+    private Mono<ServerResponse> exportBackupZip(ServerRequest request) {
         return handle(currentUser.requireUsername().flatMap(username ->
-            dataAccess.exportBackup(username)
-                .flatMap(WorkspaceEndpoint::okJson)));
+            backupZipService.exportZip(username, request.uri())
+                .flatMap(path -> {
+                    var filename = "personal-workspace-backup-"
+                        + LocalDateTime.now().format(BACKUP_STAMP) + ".zip";
+                    var body = DataBufferUtils.read(new FileSystemResource(path),
+                            new DefaultDataBufferFactory(), 64 * 1024)
+                        .doFinally(signal -> deleteQuietly(path));
+                    return ServerResponse.ok()
+                        .contentType(MediaType.parseMediaType("application/zip"))
+                        .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"" + filename + "\"")
+                        .header("Cache-Control", "no-store")
+                        .body(body, DataBuffer.class);
+                })));
     }
 
-    private Mono<ServerResponse> importBackup(ServerRequest request) {
+    private Mono<ServerResponse> importBackupZip(ServerRequest request) {
         return handle(currentUser.requireUsername().flatMap(username -> {
             var replace = "true".equalsIgnoreCase(
                 request.queryParam("replace").orElse("false"));
-            return readBody(request, BackupPayload.class, MAX_BACKUP_BODY, BULK_MAPPER)
-                .flatMap(body -> dataAccess.importBackup(username, body, replace))
-                .flatMap(WorkspaceEndpoint::okJson);
+            return request.multipartData()
+                .onErrorMap(DataBufferLimitException.class,
+                    error -> ApiException.payloadTooLarge())
+                .flatMap(parts -> {
+                    var part = parts.getFirst("file");
+                    if (!(part instanceof FilePart filePart)) {
+                        return Mono.error(ApiException.badRequest("请选择 ZIP 备份文件"));
+                    }
+                    var length = filePart.headers().getContentLength();
+                    if (length > MAX_BACKUP_ZIP_BYTES) {
+                        return Mono.error(ApiException.payloadTooLarge());
+                    }
+                    Path temp;
+                    try {
+                        temp = Files.createTempFile("personal-workspace-import-", ".zip");
+                        temp.toFile().deleteOnExit();
+                    } catch (IOException error) {
+                        return Mono.error(new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
+                            "TEMP_FILE_FAILED", "无法创建临时文件"));
+                    }
+                    return filePart.transferTo(temp)
+                        .then(backupZipService.importZip(username, temp, replace))
+                        .doFinally(signal -> deleteQuietly(temp))
+                        .flatMap(WorkspaceEndpoint::okJson);
+                });
         }));
+    }
+
+    private static void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // The temp file is also removed on exit.
+        }
     }
 
     private <T> Mono<T> readBody(ServerRequest request, Class<T> type) {
@@ -534,6 +595,19 @@ public class WorkspaceEndpoint implements CustomEndpoint {
             throw ApiException.notFound();
         }
         return name;
+    }
+
+    private static String optionalPost(ServerRequest request) {
+        return request.queryParam("linkPost")
+            .map(String::trim)
+            .filter(value -> !value.isEmpty())
+            .map(value -> {
+                if (value.length() > 64 || !NAME_PATTERN.matcher(value).matches()) {
+                    throw ApiException.badRequest("文章标识无效");
+                }
+                return value;
+            })
+            .orElse(null);
     }
 
     private static void requireConfirm(ServerRequest request) {

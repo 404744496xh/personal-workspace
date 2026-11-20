@@ -6,12 +6,15 @@ import {
   deleteNote,
   generateNoteSummary,
   getNote,
+  linkNotePost,
   listNoteTemplates,
   listNotes,
   listProjects,
   listTodos,
   updateNote
 } from '../api'
+import { createPostDraft, openPostEditor, updatePostContent, updatePostTitle } from '../articles'
+import { markdownToHtml } from '../vditor'
 import type { Note, NotePayload, NoteSummary, NoteTemplate, Project, Todo } from '../types'
 import { PROJECT_STATUSES, projectStatusOf } from '../projectStatus'
 import { copyText, excerpt, formatDateTime, messageOf } from '../utils'
@@ -23,6 +26,7 @@ import Input from '../components/ui/Input.vue'
 import SearchSelect from '../components/ui/SearchSelect.vue'
 import NoteEditor from '../components/NoteEditor.vue'
 import NoteTemplatesDialog from '../components/NoteTemplatesDialog.vue'
+import PostImportDialog from '../components/PostImportDialog.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
@@ -71,11 +75,18 @@ const saving = ref(false)
 const pendingDelete = ref<NoteSummary | null>(null)
 const noteTemplates = ref<NoteTemplate[]>(DEFAULT_NOTE_TEMPLATES.map((template) => ({ ...template })))
 const templatesOpen = ref(false)
+const importOpen = ref(false)
+const exporting = ref(false)
 const { toast, show } = useToast()
 const { menu: contextMenu, open: openContextMenu } = useContextMenu()
 
 const sortedNotes = computed(() => [...notes.value].sort((left, right) =>
   (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '')))
+
+const linkedPosts = computed(() =>
+  notes.value
+    .map((note) => note.post)
+    .filter((post): post is string => Boolean(post)))
 
 function projectTitleOf(name: string | null): string {
   if (!name) return ''
@@ -325,8 +336,38 @@ function toSummary(note: Note): NoteSummary {
     project: note.project,
     module: note.module,
     todos: note.todos,
-    updatedAt: note.updatedAt
+    updatedAt: note.updatedAt,
+    post: note.post
   }
+}
+
+function notePayload(note: Note): NotePayload {
+  return {
+    title: note.title,
+    content: note.content,
+    summary: note.summary,
+    tags: note.tags,
+    project: note.project,
+    module: note.module,
+    todos: note.todos
+  }
+}
+
+function applyNoteRecord(note: Note): void {
+  const summary = toSummary(note)
+  const index = notes.value.findIndex((item) => item.name === note.name)
+  if (index >= 0) notes.value[index] = summary
+  else notes.value = [summary, ...notes.value]
+  if (editing.value?.name === note.name) editing.value = note
+  writeCache('notes', notes.value)
+}
+
+function onImported(note: Note, updated: boolean): void {
+  applyNoteRecord(note)
+  createDefaults.value = {}
+  editing.value = note
+  editorOpen.value = true
+  show(updated ? '已更新笔记' : '已导入笔记')
 }
 
 function closeEditor(): void {
@@ -386,6 +427,10 @@ function jumpToProject(note: NoteSummary): void {
   if (title) emit('openProjects', title)
 }
 
+function openLinkedPostFromCard(note: NoteSummary): void {
+  if (note.post) openPostEditor(note.post)
+}
+
 function jumpToModule(note: NoteSummary): void {
   emit('openTodos', {
     project: note.project ?? undefined,
@@ -429,6 +474,74 @@ async function exportNoteMarkdown(note: NoteSummary): Promise<void> {
     anchor.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     show('已导出 Markdown')
+  } catch (err) {
+    handleError(err)
+  }
+}
+
+async function linkNoteWithRetry(note: Note, postName: string): Promise<Note> {
+  try {
+    return await linkNotePost(note.name, notePayload(note), postName)
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 409) throw err
+    await new Promise((resolve) => window.setTimeout(resolve, 300))
+    return linkNotePost(note.name, notePayload(note), postName)
+  }
+}
+
+async function exportNoteToPost(note: Note): Promise<void> {
+  if (exporting.value) return
+  if (!note.title.trim()) {
+    show('请先填写笔记标题')
+    return
+  }
+  if (!note.content.trim()) {
+    show('笔记正文为空，无法导出')
+    return
+  }
+  exporting.value = true
+  if (!editorOpen.value) show('正在存为草稿…')
+  try {
+    const html = await markdownToHtml(note.content)
+    let postName = note.post ?? ''
+    let created = false
+    if (postName) {
+      const result = await updatePostContent(postName, note.content, html)
+      if (result === 'missing') postName = ''
+    }
+    if (!postName) {
+      postName = await createPostDraft(note.title, note.content, html)
+      created = true
+    }
+    // 先建立关联再改标题：即使标题更新失败，重试也不会再建一篇文章
+    applyNoteRecord(await linkNoteWithRetry(note, postName))
+    if (!created) {
+      const result = await updatePostTitle(postName, note.title)
+      if (result === 'missing') {
+        postName = await createPostDraft(note.title, note.content, html)
+        applyNoteRecord(await linkNoteWithRetry(note, postName))
+        show('文章已删除，已新建草稿')
+        return
+      }
+    }
+    show(created ? '已存为文章草稿' : '已更新文章草稿')
+  } catch (err) {
+    handleError(err)
+  } finally {
+    exporting.value = false
+  }
+}
+
+function exportFromEditor(): void {
+  const note = editing.value
+  if (note) void exportNoteToPost(note)
+}
+
+async function exportPostFromCard(note: NoteSummary): Promise<void> {
+  if (exporting.value) return
+  try {
+    const full = await getNote(note.name)
+    await exportNoteToPost(full)
   } catch (err) {
     handleError(err)
   }
@@ -554,6 +667,19 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
     onSelect: () => void exportNoteMarkdown(note)
   })
   items.push({
+    label: note.post ? '更新文章草稿' : '存为文章草稿',
+    icon: 'link',
+    disabled: exporting.value,
+    onSelect: () => void exportPostFromCard(note)
+  })
+  if (note.post) {
+    items.push({
+      label: '打开关联文章',
+      icon: 'open',
+      onSelect: () => openLinkedPostFromCard(note)
+    })
+  }
+  items.push({
     label: note.summary ? '重新生成 AI 摘要' : 'AI 生成摘要',
     icon: 'sparkle',
     disabled: summaryBusy.value !== null,
@@ -628,6 +754,13 @@ onUnmounted(() => {
       @change="applyTemplates"
     />
 
+    <PostImportDialog
+      v-if="importOpen"
+      :linked-posts="linkedPosts"
+      @close="importOpen = false"
+      @imported="onImported"
+    />
+
     <NoteEditor
       v-if="editorOpen"
       :note="editing"
@@ -636,6 +769,7 @@ onUnmounted(() => {
       :templates="noteTemplates"
       :saving="saving"
       :summary-busy="summaryBusy !== null"
+      :exporting="exporting"
       :persist="persist"
       :default-project="createDefaults.project"
       :default-module="createDefaults.module"
@@ -643,6 +777,7 @@ onUnmounted(() => {
       @close="closeEditor"
       @manage-templates="templatesOpen = true"
       @summary="generateSummaryFromEditor"
+      @export-post="exportFromEditor"
     />
 
     <template v-else>
@@ -721,6 +856,11 @@ onUnmounted(() => {
       <Button
         variant="ghost"
         class="ml-auto"
+        title="从 Halo 文章导入"
+        @click="importOpen = true"
+      >导入文章</Button>
+      <Button
+        variant="ghost"
         title="管理笔记模板"
         @click="templatesOpen = true"
       >模板</Button>
@@ -816,7 +956,7 @@ onUnmounted(() => {
         </p>
 
         <div
-          v-if="note.project || note.module || note.todos.length"
+          v-if="note.project || note.module || note.todos.length || note.post"
           class="mt-3 flex flex-wrap items-center gap-1.5"
         >
           <button
@@ -827,6 +967,18 @@ onUnmounted(() => {
             :disabled="!projectTitleOf(note.project)"
             @click.stop="jumpToProject(note)"
           >{{ projectTitleOf(note.project) || '原项目已删除' }}</button>
+          <button
+            v-if="note.post"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/60 transition-colors duration-150 hover:bg-black/[0.1] dark:bg-white/[0.08] dark:text-[#f5f5f7]/60 dark:hover:bg-white/[0.14]"
+            title="在 Halo 控制台打开关联文章"
+            @click.stop="openLinkedPostFromCard(note)"
+          >
+            <svg class="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M5 7l2-2M5.6 3.8l.8-.8a1.7 1.7 0 012.4 2.4l-.8.8M6.4 8.2l-.8.8a1.7 1.7 0 01-2.4-2.4l.8-.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            </svg>
+            关联文章
+          </button>
           <button
             v-if="note.module"
             type="button"

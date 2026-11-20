@@ -13,7 +13,8 @@ public record NoteView(
     String project,
     String module,
     List<String> todos,
-    String updatedAt
+    String updatedAt,
+    String post
 ) {
 
     public static NoteView of(WorkspaceNote note) {
@@ -33,7 +34,8 @@ public record NoteView(
             spec.getProject(),
             spec.getModule(),
             spec.getTodos() == null ? List.of() : List.copyOf(spec.getTodos()),
-            updatedAt
+            updatedAt,
+            spec.getPost()
         );
     }
 }

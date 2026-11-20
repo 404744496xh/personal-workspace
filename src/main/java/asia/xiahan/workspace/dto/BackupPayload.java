@@ -29,7 +29,8 @@ public record BackupPayload(
         @Size(max = 40) String completedAt,
         Boolean dismissed,
         @Size(max = 40) String dismissedAt,
-        Boolean pinned
+        Boolean pinned,
+        @Size(max = 40) String createdAt
     ) {
     }
 
@@ -62,7 +63,8 @@ public record BackupPayload(
         @Size(max = 64) String project,
         @Size(max = 32) String module,
         @Size(max = 50) List<@NotBlank @Size(max = 64) String> todos,
-        @Size(max = 40) String updatedAt
+        @Size(max = 40) String updatedAt,
+        @Size(max = 64) String post
     ) {
     }
 }

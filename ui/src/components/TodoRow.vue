@@ -80,7 +80,7 @@ function isOverdue(): boolean {
       class="ws-todo-body min-w-0 flex-1 cursor-pointer py-2.5"
       @click="selecting ? emit('select') : emit('edit')"
     >
-      <div class="ws-todo-top flex items-baseline gap-2">
+      <div class="ws-todo-top flex items-center gap-2">
         <h4
           class="min-w-0 flex-1 truncate text-[14px]"
           :class="todo.completed || todo.dismissed
@@ -102,7 +102,7 @@ function isOverdue(): boolean {
           class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
         >不用处理</span>
         <span
-          class="ws-prio shrink-0 text-[11px] font-medium tabular-nums"
+          class="ws-prio inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] text-[11px] font-medium leading-none tabular-nums"
           :class="priorityClass(todo.priority)"
         >{{ priorityLabel(todo.priority) }}</span>
       </div>

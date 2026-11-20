@@ -5,9 +5,13 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import type { Note, NotePayload, NoteTemplate, Project, Todo } from '../types'
 import { messageOf } from '../utils'
 import { uploadImage } from '../api'
+import { openPostEditor } from '../articles'
 import { applyMermaidTheme } from '../mermaidTheme'
+import { loadVditor, VDITOR_CDN, VDITOR_CONTENT_THEME, type VditorCtor } from '../vditor'
+import { useContextMenu } from '../contextMenu'
 import Button from './ui/Button.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import ContextMenu from './ContextMenu.vue'
 import NotePropsDialog from './NotePropsDialog.vue'
 
 const props = defineProps<{
@@ -17,6 +21,7 @@ const props = defineProps<{
   templates: NoteTemplate[]
   saving: boolean
   summaryBusy?: boolean
+  exporting?: boolean
   persist: (payload: NotePayload) => Promise<boolean>
   defaultProject?: string
   defaultModule?: string
@@ -27,10 +32,8 @@ const emit = defineEmits<{
   close: []
   manageTemplates: []
   summary: [payload: { title: string; content: string }]
+  exportPost: []
 }>()
-
-const CDN = '/plugins/personal-workspace/assets/vditor'
-const CONTENT_THEME_PATH = `${CDN}/dist/css/content-theme`
 
 const title = ref(props.note?.title ?? '')
 const content = ref(props.note?.content ?? '')
@@ -53,6 +56,7 @@ const confirmDiscard = ref(false)
 const localError = ref('')
 const uploading = ref(0)
 const ready = ref(false)
+const { menu: articleMenu, open: openArticleMenu } = useContextMenu()
 
 // 大纲折叠偏好跨次打开保留；默认收起成右侧细轨，鼠标悬停/点击展开
 const OUTLINE_KEY = 'personal-workspace:outline-hidden-v2'
@@ -277,7 +281,7 @@ function applyTheme(): void {
     dark ? 'dark' : 'classic',
     dark ? 'dark' : 'light',
     dark ? 'github-dark' : 'github',
-    CONTENT_THEME_PATH
+    VDITOR_CONTENT_THEME
   )
   void rerenderDiagrams()
 }
@@ -502,6 +506,55 @@ async function submit(): Promise<void> {
   if (await props.persist(payload)) emit('close')
 }
 
+async function exportPost(): Promise<void> {
+  if (props.saving || props.exporting || !ready.value) return
+  if (!title.value.trim()) {
+    localError.value = '请输入笔记标题'
+    return
+  }
+  localError.value = ''
+  window.clearTimeout(autoTimer)
+  const payload = buildPayload()
+  if (!payload) return
+  const savedSnapshot = snapshotOf(payload)
+  if (await props.persist(payload)) {
+    baseline.value = savedSnapshot
+    markAutoSaved()
+    emit('exportPost')
+  }
+}
+
+function openLinkedPost(): void {
+  if (props.note?.post) openPostEditor(props.note.post)
+}
+
+function onArticleClick(event: MouseEvent): void {
+  if (props.saving || props.exporting || !ready.value) return
+  if (!props.note?.post) {
+    void exportPost()
+    return
+  }
+  const trigger = event.currentTarget as HTMLElement | null
+  const rect = trigger?.getBoundingClientRect()
+  const anchor = rect
+    ? new MouseEvent('click', {
+        clientX: rect.left,
+        clientY: rect.bottom + 6,
+        bubbles: true,
+        cancelable: true
+      })
+    : event
+  openArticleMenu(anchor, [
+    {
+      label: '更新文章草稿',
+      icon: 'link',
+      disabled: props.exporting,
+      onSelect: () => void exportPost()
+    },
+    { label: '打开文章', icon: 'open', onSelect: openLinkedPost }
+  ])
+}
+
 function applyProps(value: { project: string; module: string; todos: string[] }): void {
   project.value = value.project
   module.value = value.module
@@ -518,33 +571,6 @@ function onWindowKeydown(event: KeyboardEvent): void {
 
 let themeObserver: MutationObserver | undefined
 
-type VditorCtor = typeof import('vditor')['default']
-let vditorScript: Promise<VditorCtor> | null = null
-
-// Vditor 用 UMD 脚本按需加载，避免把编辑器打进首屏 bundle；版本随插件资源路径更新
-function loadVditor(): Promise<VditorCtor> {
-  const global = window as unknown as { Vditor?: VditorCtor }
-  if (global.Vditor) return Promise.resolve(global.Vditor)
-  if (vditorScript) return vditorScript
-  vditorScript = new Promise<VditorCtor>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = `${CDN}/dist/index.min.js`
-    script.onload = () => {
-      if (global.Vditor) resolve(global.Vditor)
-      else {
-        vditorScript = null
-        reject(new Error('Vditor 加载失败'))
-      }
-    }
-    script.onerror = () => {
-      vditorScript = null
-      reject(new Error('Vditor 加载失败'))
-    }
-    document.head.appendChild(script)
-  })
-  return vditorScript
-}
-
 onMounted(async () => {
   if (!editorEl.value) return
   applyMermaidTheme()
@@ -558,7 +584,7 @@ onMounted(async () => {
   }
   if (!editorEl.value) return
   vditor.value = new VditorCtor(editorEl.value, {
-    cdn: CDN,
+    cdn: VDITOR_CDN,
     mode: 'ir',
     value: content.value,
     height: '100%',
@@ -573,7 +599,7 @@ onMounted(async () => {
       maxWidth: 800,
       theme: {
         current: dark ? 'dark' : 'light',
-        path: CONTENT_THEME_PATH
+        path: VDITOR_CONTENT_THEME
       },
       hljs: { style: dark ? 'github-dark' : 'github', lineNumber: false }
     },
@@ -684,6 +710,32 @@ onBeforeUnmount(() => {
         <span v-else-if="autoStatus" class="text-[12px] text-[#6e6e73] dark:text-[#98989d]" role="status">
           {{ autoStatus }}
         </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="ws-note-article"
+          :disabled="saving || exporting || uploading > 0 || !ready"
+          :aria-label="note?.post ? '文章操作' : '存为文章草稿'"
+          :title="note?.post ? '文章操作' : '存为文章草稿'"
+          @click="onArticleClick"
+        >
+          {{ exporting ? '存草稿中…' : note?.post ? '文章' : '存为文章草稿' }}
+          <svg
+            v-if="note?.post && !exporting"
+            class="h-3 w-3 opacity-45"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -809,5 +861,13 @@ onBeforeUnmount(() => {
     confirm-text="放弃"
     @confirm="discardAndClose"
     @close="confirmDiscard = false"
+  />
+
+  <ContextMenu
+    v-if="articleMenu.open"
+    :x="articleMenu.x"
+    :y="articleMenu.y"
+    :items="articleMenu.items"
+    @close="articleMenu.open = false"
   />
 </template>

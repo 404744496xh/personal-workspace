@@ -191,7 +191,7 @@ server.registerTool(
     inputSchema: {
       status: z.enum(statusEnum).optional().default('OPEN').describe('完成状态筛选'),
       priority: z.enum(priorityEnum).optional().describe('优先级筛选'),
-      keyword: z.string().max(100).optional().describe('按标题或详情搜索'),
+      keyword: z.string().max(100).optional().describe('按标题、详情或姓名搜索'),
       project: z.string().max(200).optional().describe('项目 name 或标题；「未关联」= 未分类'),
       module: z.string().max(32).optional().describe('模块名；「未分组」= 无模块'),
       limit: z.number().int().min(1).max(200).optional().default(30).describe('最多返回几条')

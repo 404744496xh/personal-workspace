@@ -48,6 +48,9 @@ public class WorkspaceNote extends AbstractExtension {
         @Schema(description = "Last update time in ISO-8601, written by the server", maxLength = 40)
         private String updatedAt;
 
+        @Schema(description = "Linked Halo post metadata.name, written by the server", maxLength = 64)
+        private String post;
+
         @Schema(description = "Tags, de-duplicated by the server")
         private List<String> tags = new ArrayList<>();
 
@@ -98,6 +101,14 @@ public class WorkspaceNote extends AbstractExtension {
 
         public void setUpdatedAt(String updatedAt) {
             this.updatedAt = updatedAt;
+        }
+
+        public String getPost() {
+            return post;
+        }
+
+        public void setPost(String post) {
+            this.post = post;
         }
 
         public List<String> getTags() {

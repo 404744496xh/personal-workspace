@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
@@ -48,6 +49,8 @@ public class WorkspaceDataAccess {
     private static final Sort CREATED_DESC =
         Sort.by(Sort.Order.desc("metadata.creationTimestamp"));
     private static final int SEARCH_LIMIT_PER_TYPE = 8;
+    private static final Pattern POST_NAME =
+        Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?");
 
     private final ReactiveExtensionClient client;
 
@@ -60,7 +63,8 @@ public class WorkspaceDataAccess {
         if (!query.keyword().isEmpty()) {
             condition = condition.and(Queries.or(
                 Queries.contains("spec.title", query.keyword()),
-                Queries.contains("spec.detail", query.keyword())
+                Queries.contains("spec.detail", query.keyword()),
+                Queries.contains("spec.reporter", query.keyword())
             ));
         }
         if ("OPEN".equals(query.status())) {
@@ -295,6 +299,43 @@ public class WorkspaceDataAccess {
             .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
     }
 
+    public Mono<WorkspaceNote> linkNotePost(String owner, String name, String post) {
+        return getNote(owner, name)
+            .flatMap(note -> {
+                note.getSpec().setPost(post);
+                note.getSpec().setUpdatedAt(Instant.now().toString());
+                return client.update(note);
+            })
+            .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
+    }
+
+    // 文章导入按 post 去重：已关联的笔记只更新标题与正文，保留项目、待办等本地属性
+    public Mono<WorkspaceNote> importNoteFromPost(String owner, String post,
+        NoteUpsertRequest request) {
+        return listNotes(owner)
+            .filter(note -> note.getSpec() != null && post.equals(note.getSpec().getPost()))
+            .next()
+            .flatMap(note -> {
+                note.getSpec().setTitle(request.title().trim());
+                note.getSpec().setContent(request.content() == null ? "" : request.content());
+                note.getSpec().setSummary(null);
+                note.getSpec().setUpdatedAt(Instant.now().toString());
+                return client.update(note);
+            })
+            .switchIfEmpty(Mono.defer(() -> {
+                var note = new WorkspaceNote();
+                note.setMetadata(newMetadata());
+                var spec = new WorkspaceNote.Spec();
+                spec.setOwner(owner);
+                applyNote(spec, request);
+                spec.setPost(post);
+                spec.setUpdatedAt(Instant.now().toString());
+                note.setSpec(spec);
+                return client.create(note);
+            }))
+            .onErrorMap(OptimisticLockingFailureException.class, error -> ApiException.conflict());
+    }
+
     public Mono<Void> deleteNote(String owner, String name) {
         return getNote(owner, name)
             .flatMap(note -> client.delete(note))
@@ -337,7 +378,8 @@ public class WorkspaceDataAccess {
                 todoList.stream()
                     .filter(todo -> !todo.getSpec().isDismissed())
                     .filter(todo -> matches(needle, todo.getSpec().getTitle(),
-                        todo.getSpec().getDetail(), todo.getSpec().getModule(),
+                        todo.getSpec().getDetail(), todo.getSpec().getReporter(),
+                        todo.getSpec().getModule(),
                         projectTitles.get(todo.getSpec().getProject())))
                     .limit(SEARCH_LIMIT_PER_TYPE)
                     .map(todo -> new SearchHit("todo", todo.getMetadata().getName(),
@@ -375,63 +417,76 @@ public class WorkspaceDataAccess {
             });
     }
 
-    public Mono<BackupPayload> exportBackup(String owner) {
-        return Mono.zip(
-                listOwned(WorkspaceTodo.class, owner, TODO_SORT).collectList(),
-                listOwned(WorkspaceProject.class, owner, PROJECT_SORT).collectList(),
-                listOwned(WorkspaceQuickCmd.class, owner, CREATED_DESC).collectList(),
-                listOwned(WorkspaceNote.class, owner, CREATED_DESC).collectList())
-            .map(tuple -> {
-                var todos = tuple.getT1().stream()
-                    .map(todo -> new BackupPayload.BackupTodo(
-                        todo.getMetadata().getName(),
-                        todo.getSpec().getTitle(),
-                        todo.getSpec().getDetail(),
-                        todo.getSpec().getPriority(),
-                        todo.getSpec().getProject(),
-                        todo.getSpec().getModule(),
-                        todo.getSpec().getProjectStatus(),
-                        todo.getSpec().getReporter(),
-                        todo.getSpec().getDueDate(),
-                        todo.getSpec().isCompleted(),
-                        todo.getSpec().getCompletedAt(),
-                        todo.getSpec().isDismissed(),
-                        todo.getSpec().getDismissedAt(),
-                        todo.getSpec().isPinned()))
-                    .toList();
-                var projects = tuple.getT2().stream()
-                    .map(project -> new BackupPayload.BackupProject(
-                        project.getMetadata().getName(),
-                        project.getSpec().getTitle(),
-                        nullSafe(project.getSpec().getModules()),
-                        statusOf(project),
-                        null,
-                        project.getSpec().getNote(),
-                        nullSafe(project.getSpec().getLinks()),
-                        nullSafe(project.getSpec().getTags())))
-                    .toList();
-                var commands = tuple.getT3().stream()
-                    .map(command -> new BackupPayload.BackupCommand(
-                        command.getSpec().getTitle(),
-                        command.getSpec().getCommand(),
-                        command.getSpec().getNote(),
-                        command.getSpec().getCategory(),
-                        nullSafe(command.getSpec().getTags())))
-                    .toList();
-                var notes = tuple.getT4().stream()
-                    .map(note -> new BackupPayload.BackupNote(
-                        note.getSpec().getTitle(),
-                        note.getSpec().getContent(),
-                        note.getSpec().getSummary(),
-                        nullSafe(note.getSpec().getTags()),
-                        note.getSpec().getProject(),
-                        note.getSpec().getModule(),
-                        nullSafe(note.getSpec().getTodos()),
-                        note.getSpec().getUpdatedAt()))
-                    .toList();
-                return new BackupPayload("1", Instant.now().toString(), todos, projects,
-                    commands, notes);
-            });
+    public Flux<WorkspaceTodo> streamTodos(String owner) {
+        return listOwned(WorkspaceTodo.class, owner, TODO_SORT);
+    }
+
+    public Flux<WorkspaceProject> streamProjects(String owner) {
+        return listOwned(WorkspaceProject.class, owner, PROJECT_SORT);
+    }
+
+    public Flux<WorkspaceQuickCmd> streamCommands(String owner) {
+        return listOwned(WorkspaceQuickCmd.class, owner, CREATED_DESC);
+    }
+
+    public Flux<WorkspaceNote> streamNotes(String owner) {
+        return listOwned(WorkspaceNote.class, owner, CREATED_DESC);
+    }
+
+    public BackupPayload.BackupTodo toBackupTodo(WorkspaceTodo todo) {
+        return new BackupPayload.BackupTodo(
+            todo.getMetadata().getName(),
+            todo.getSpec().getTitle(),
+            todo.getSpec().getDetail(),
+            todo.getSpec().getPriority(),
+            todo.getSpec().getProject(),
+            todo.getSpec().getModule(),
+            todo.getSpec().getProjectStatus(),
+            todo.getSpec().getReporter(),
+            todo.getSpec().getDueDate(),
+            todo.getSpec().isCompleted(),
+            todo.getSpec().getCompletedAt(),
+            todo.getSpec().isDismissed(),
+            todo.getSpec().getDismissedAt(),
+            todo.getSpec().isPinned(),
+            todo.getSpec().getCreatedAt() != null
+                ? todo.getSpec().getCreatedAt()
+                : todo.getMetadata().getCreationTimestamp() == null
+                    ? null : todo.getMetadata().getCreationTimestamp().toString());
+    }
+
+    public BackupPayload.BackupProject toBackupProject(WorkspaceProject project) {
+        return new BackupPayload.BackupProject(
+            project.getMetadata().getName(),
+            project.getSpec().getTitle(),
+            nullSafe(project.getSpec().getModules()),
+            statusOf(project),
+            null,
+            project.getSpec().getNote(),
+            nullSafe(project.getSpec().getLinks()),
+            nullSafe(project.getSpec().getTags()));
+    }
+
+    public BackupPayload.BackupCommand toBackupCommand(WorkspaceQuickCmd command) {
+        return new BackupPayload.BackupCommand(
+            command.getSpec().getTitle(),
+            command.getSpec().getCommand(),
+            command.getSpec().getNote(),
+            command.getSpec().getCategory(),
+            nullSafe(command.getSpec().getTags()));
+    }
+
+    public BackupPayload.BackupNote toBackupNote(WorkspaceNote note) {
+        return new BackupPayload.BackupNote(
+            note.getSpec().getTitle(),
+            note.getSpec().getContent(),
+            note.getSpec().getSummary(),
+            nullSafe(note.getSpec().getTags()),
+            note.getSpec().getProject(),
+            note.getSpec().getModule(),
+            nullSafe(note.getSpec().getTodos()),
+            note.getSpec().getUpdatedAt(),
+            note.getSpec().getPost());
     }
 
     public Mono<BackupImportResult> importBackup(String owner, BackupPayload payload,
@@ -466,6 +521,7 @@ public class WorkspaceDataAccess {
             spec.setTitle(source.title().trim());
             spec.setDetail(source.detail() == null ? "" : source.detail());
             spec.setPriority(source.priority() == null ? "MEDIUM" : source.priority());
+            spec.setCreatedAt(normalizeCreatedAt(source.createdAt()));
             spec.setProject(mappedProject);
             spec.setModule(normalizeModule(mappedProject, source.module()));
             spec.setProjectStatus(mappedProject == null ? null
@@ -520,6 +576,7 @@ public class WorkspaceDataAccess {
             spec.setModule(normalizeModule(mappedNoteProject, source.module()));
             spec.setTodos(normalizeNames(remapTodoNames(source.todos(), todoNames), 50));
             spec.setUpdatedAt(parseInstantOrNow(source.updatedAt()));
+            spec.setPost(normalizePost(source.post()));
             note.setSpec(spec);
             notes.add(note);
         }
@@ -779,6 +836,11 @@ public class WorkspaceDataAccess {
         } catch (DateTimeParseException error) {
             throw ApiException.badRequest("截止日期格式应为 YYYY-MM-DD");
         }
+    }
+
+    private static String normalizePost(String post) {
+        var text = trimToNull(post);
+        return text != null && POST_NAME.matcher(text).matches() ? text : null;
     }
 
     private static String normalizeCreatedAt(String createdAt) {

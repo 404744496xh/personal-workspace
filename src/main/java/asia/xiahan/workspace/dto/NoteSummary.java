@@ -13,7 +13,8 @@ public record NoteSummary(
     String project,
     String module,
     List<String> todos,
-    String updatedAt
+    String updatedAt,
+    String post
 ) {
 
     private static final int EXCERPT_MAX = 220;
@@ -35,7 +36,8 @@ public record NoteSummary(
             spec.getProject(),
             spec.getModule(),
             spec.getTodos() == null ? List.of() : List.copyOf(spec.getTodos()),
-            updatedAt
+            updatedAt,
+            spec.getPost()
         );
     }
 

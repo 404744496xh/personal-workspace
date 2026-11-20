@@ -107,6 +107,26 @@ function staleCutoff(): string {
 
 const status = ref<StatusFilter>(todosTarget?.todo ? 'ALL' : (todosTarget?.status ?? 'OPEN'))
 const priority = ref<Priority | ''>('')
+const statusModel = computed({
+  get: () => status.value,
+  set: (value: string) => { status.value = value as StatusFilter }
+})
+const priorityModel = computed({
+  get: () => priority.value,
+  set: (value: string) => { priority.value = value as Priority | '' }
+})
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'ALL', label: '全部' },
+  { value: 'OPEN', label: '未完成' },
+  { value: 'DONE', label: '已完成' },
+  { value: 'DISMISSED', label: '不用处理' }
+]
+const PRIORITY_OPTIONS: { value: Priority | ''; label: string }[] = [
+  { value: '', label: '全部' },
+  { value: 'HIGH', label: '高' },
+  { value: 'MEDIUM', label: '中' },
+  { value: 'LOW', label: '低' }
+]
 const projectStatus = ref('')
 const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
@@ -288,7 +308,7 @@ const visibleItems = computed(() => {
       && hiddenProjectNames.value.has(todo.project)) return false
     if (!matchesStatus(todo)) return false
     if (needle) {
-      const haystack = `${todo.title} ${todo.detail ?? ''}`.toLowerCase()
+      const haystack = `${todo.title} ${todo.detail ?? ''} ${todo.reporter ?? ''}`.toLowerCase()
       if (!haystack.includes(needle)) return false
     }
     if (priority.value && todo.priority !== priority.value) return false
@@ -2083,7 +2103,7 @@ onUnmounted(() => {
   <div ref="viewRoot" class="ws-view" @click.capture="onViewClickCapture">
     <template v-if="!toolsCollapsed">
     <div class="ws-toolbar mb-2 flex flex-wrap items-center gap-1">
-      <div class="relative min-w-[120px] flex-1 sm:max-w-[300px]">
+      <div class="relative min-w-[140px] flex-1 sm:max-w-[420px]">
         <svg
           class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-black/30 dark:text-white/30"
           viewBox="0 0 16 16"
@@ -2218,28 +2238,6 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <Select
-        v-model="status"
-        class="w-[104px] shrink-0"
-        :active="status !== 'OPEN'"
-        aria-label="完成状态"
-      >
-        <option value="ALL">全部状态</option>
-        <option value="OPEN">未完成</option>
-        <option value="DONE">已完成</option>
-        <option value="DISMISSED">不用处理</option>
-      </Select>
-      <Select
-        v-model="priority"
-        class="w-[124px] shrink-0"
-        :active="priority !== ''"
-        aria-label="优先级"
-      >
-        <option value="">全部优先级</option>
-        <option value="HIGH">高</option>
-        <option value="MEDIUM">中</option>
-        <option value="LOW">低</option>
-      </Select>
       <div
         ref="sortMenuRef"
         class="ws-sort-control relative inline-flex h-11 items-stretch rounded-full border border-black/[0.08] bg-white/80 transition-[border-color,background-color] duration-200 ease-[var(--ws-ease)] hover:border-black/[0.14] dark:border-white/10 dark:bg-white/[0.06] dark:hover:border-white/20"
@@ -2518,6 +2516,22 @@ onUnmounted(() => {
         aria-label="按项目状态筛选"
         class="w-[180px] shrink-0"
       />
+      <SearchSelect
+        v-model="statusModel"
+        :options="STATUS_OPTIONS"
+        label="状态"
+        :active="status !== 'OPEN'"
+        aria-label="按完成状态筛选"
+        class="w-[120px] shrink-0"
+      />
+      <SearchSelect
+        v-model="priorityModel"
+        :options="PRIORITY_OPTIONS"
+        label="优先级"
+        :active="priority !== ''"
+        aria-label="按优先级筛选"
+        class="w-[150px] shrink-0"
+      />
       <Button
         v-if="activeProject !== null || activeModule !== null || projectStatus !== ''"
         variant="ghost"
@@ -2589,7 +2603,7 @@ onUnmounted(() => {
       v-if="toolsCollapsed"
       v-model="keyword"
       :active="hasNonKeywordFilters"
-      placeholder="搜索标题或详情"
+      placeholder="搜索标题、详情或姓名"
       search-label="搜索待办"
       class="ws-todos-tools-collapsed"
       @expand="toolsCollapsed = false"

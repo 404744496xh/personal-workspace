@@ -87,6 +87,7 @@ export interface Note {
   module: string | null
   todos: string[]
   updatedAt: string
+  post: string | null
 }
 
 export interface NoteSummary {
@@ -99,6 +100,7 @@ export interface NoteSummary {
   module: string | null
   todos: string[]
   updatedAt: string
+  post?: string | null
 }
 
 export interface NotePayload {
@@ -156,61 +158,6 @@ export interface AiImportRow {
 
 export interface AiImportResponse {
   rows: AiImportRow[]
-}
-
-export interface BackupTodo {
-  name: string | null
-  title: string
-  detail: string | null
-  priority: Priority | null
-  project: string | null
-  module: string | null
-  projectStatus: ProjectStatus | null
-  reporter: string | null
-  dueDate: string | null
-  completed: boolean | null
-  completedAt: string | null
-  dismissed: boolean | null
-  dismissedAt: string | null
-  pinned: boolean | null
-}
-
-export interface BackupProject {
-  name: string | null
-  title: string
-  modules: string[] | null
-  status: ProjectStatus | null
-  note: string | null
-  links: string[] | null
-  tags: string[] | null
-}
-
-export interface BackupCommand {
-  title: string
-  command: string
-  note: string | null
-  category: string | null
-  tags: string[] | null
-}
-
-export interface BackupNote {
-  title: string
-  content: string | null
-  summary: string | null
-  tags: string[] | null
-  project: string | null
-  module: string | null
-  todos: string[] | null
-  updatedAt: string | null
-}
-
-export interface BackupData {
-  version: string
-  exportedAt: string | null
-  todos: BackupTodo[]
-  projects: BackupProject[]
-  commands: BackupCommand[]
-  notes: BackupNote[]
 }
 
 export interface BackupCounts {

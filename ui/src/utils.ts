@@ -8,9 +8,9 @@ const LABELS: Record<Priority, string> = {
 }
 
 const CLASSES: Record<Priority, string> = {
-  HIGH: 'text-[#FF3B30]',
-  MEDIUM: 'text-[#FF9500]',
-  LOW: 'text-[#8E8E93] dark:text-[#98989D]'
+  HIGH: 'text-[#FF3B30] bg-[#FF3B30]/10 dark:bg-[#FF3B30]/20',
+  MEDIUM: 'text-[#FF9500] bg-[#FF9500]/10 dark:bg-[#FF9500]/20',
+  LOW: 'text-[#8E8E93] bg-[#8E8E93]/10 dark:text-[#98989D] dark:bg-[#98989D]/20'
 }
 
 export function messageOf(error: unknown): string {
