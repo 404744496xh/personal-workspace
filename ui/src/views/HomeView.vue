@@ -4,7 +4,7 @@ import { ApiError, listProjects, listTodos, updateTodo } from '../api'
 import { readCache, writeCache } from '../cache'
 import type { Project, Todo } from '../types'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
-import { copyText, formatDate, messageOf } from '../utils'
+import { copyText, formatDate, messageOf, todayString } from '../utils'
 import { useToast } from '../lib/toast'
 import TodoOverview from '../components/TodoOverview.vue'
 import Toast from '../components/Toast.vue'
@@ -38,9 +38,51 @@ const openItems = computed(() => items.value
     || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')))
 const inProgress = computed(() => openItems.value.slice(0, ACTIVE_SIZE))
 
+function addDays(key: string, days: number): string {
+  const date = new Date(`${key}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+const today = todayString()
+const dueSoonLimit = addDays(today, 3)
+const dueGroups = computed(() => {
+  const overdue: Todo[] = []
+  const dueToday: Todo[] = []
+  const soon: Todo[] = []
+  for (const todo of openItems.value) {
+    if (!todo.dueDate) continue
+    if (todo.dueDate < today) overdue.push(todo)
+    else if (todo.dueDate === today) dueToday.push(todo)
+    else if (todo.dueDate <= dueSoonLimit) soon.push(todo)
+  }
+  const byDate = (a: Todo, b: Todo): number => (a.dueDate ?? '').localeCompare(b.dueDate ?? '')
+  overdue.sort(byDate)
+  soon.sort(byDate)
+  return { overdue, dueToday, soon }
+})
+const dueTotal = computed(() =>
+  dueGroups.value.overdue.length + dueGroups.value.dueToday.length + dueGroups.value.soon.length)
+const nextDue = computed(() =>
+  dueGroups.value.overdue[0] ?? dueGroups.value.dueToday[0] ?? dueGroups.value.soon[0] ?? null)
+
+function openDue(due: 'overdue' | 'today' | 'soon'): void {
+  emit('openTodos', { status: 'OPEN', due })
+}
+
 function projectLabel(todo: Todo): string {
   if (!todo.project) return '未分类'
   return projects.value.find((project) => project.name === todo.project)?.title ?? '未分类'
+}
+
+function moduleOf(todo: Todo): string {
+  if (!todo.module) return ''
+  const project = todo.project
+    ? projects.value.find((item) => item.name === todo.project)
+    : undefined
+  return project?.modules.includes(todo.module) ? todo.module : ''
 }
 
 function openTodoContext(todo: Todo): void {
@@ -196,6 +238,41 @@ onMounted(load)
     />
 
     <section
+      v-if="!loading && !error && dueTotal"
+      class="ws-home-due mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-[18px] border border-[#FF9500]/20 bg-white/[0.72] px-4 py-3 text-[12px] shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-[#FF9F0A]/20 dark:bg-[#1c1c1e]/70"
+    >
+      <span class="flex items-center gap-2 font-semibold text-[13px]">
+        <svg class="h-4 w-4 text-[#FF9500] dark:text-[#FF9F0A]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3" />
+          <path d="M8 5v3.2l2.2 1.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+        </svg>
+        到期
+      </span>
+      <button
+        type="button"
+        class="ws-home-due-overdue inline-flex min-h-8 items-center gap-1 rounded-full px-2 tabular-nums transition-colors hover:bg-[#FF3B30]/[0.08] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"
+        :class="dueGroups.overdue.length ? 'text-[#FF3B30]' : 'text-[#6e6e73] dark:text-[#98989d]'"
+        @click="openDue('overdue')"
+      >逾期 <b class="font-semibold">{{ dueGroups.overdue.length }}</b></button>
+      <button
+        type="button"
+        class="ws-home-due-today inline-flex min-h-8 items-center gap-1 rounded-full px-2 tabular-nums transition-colors hover:bg-[#FF9500]/[0.08] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25"
+        :class="dueGroups.dueToday.length ? 'text-[#FF9500] dark:text-[#FF9F0A]' : 'text-[#6e6e73] dark:text-[#98989d]'"
+        @click="openDue('today')"
+      >今天 <b class="font-semibold">{{ dueGroups.dueToday.length }}</b></button>
+      <button
+        type="button"
+        class="ws-home-due-soon inline-flex min-h-8 items-center gap-1 rounded-full px-2 tabular-nums text-[#6e6e73] transition-colors hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:text-[#98989d] dark:hover:bg-white/[0.06]"
+        @click="openDue('soon')"
+      >3 天内 <b class="font-semibold">{{ dueGroups.soon.length }}</b></button>
+      <span
+        v-if="nextDue"
+        class="ml-auto min-w-0 max-w-full truncate text-[#6e6e73] dark:text-[#98989d]"
+        :title="nextDue.title"
+      >最近：{{ nextDue.title }} · {{ nextDue.dueDate }}</span>
+    </section>
+
+    <section
       v-if="!loading && !error && inProgress.length"
       class="ws-home-active mt-4 overflow-hidden rounded-[18px] border border-white/20 bg-white/[0.72] px-2 pb-2 shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70"
     >
@@ -236,7 +313,7 @@ onMounted(load)
         >
           <span class="block truncate text-[14px] text-[#1d1d1f] dark:text-[#f5f5f7]">{{ todo.title }}</span>
           <span class="mt-0.5 block truncate text-[11px] tabular-nums text-[#6e6e73] dark:text-[#98989d]">
-            {{ projectLabel(todo) }}<template v-if="todo.module"> / {{ todo.module }}</template><template
+            {{ projectLabel(todo) }}<template v-if="moduleOf(todo)"> / {{ moduleOf(todo) }}</template><template
               v-if="todo.createdAt"
             > · 创建于 {{ formatDate(todo.createdAt) }}</template>
           </span>

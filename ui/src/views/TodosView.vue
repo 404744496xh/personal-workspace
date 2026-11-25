@@ -20,9 +20,10 @@ import {
   todoProjectStatusOf
 } from '../projectStatus'
 import type { ProjectStatus } from '../projectStatus'
-import { copyText, formatDate, formatDateTime, messageOf, priorityLabel } from '../utils'
+import { addDays, copyText, formatDate, formatDateTime, messageOf, priorityLabel, todayString } from '../utils'
 import { takeSearchTarget, takeTodosTarget } from '../searchTarget'
-import type { NotesTarget } from '../searchTarget'
+import type { DueFilter, NotesTarget } from '../searchTarget'
+import { isUrgent } from '../urgency'
 import TodoForm from '../components/TodoForm.vue'
 import QuickAddTodo from '../components/QuickAddTodo.vue'
 import TodoRow from '../components/TodoRow.vue'
@@ -59,6 +60,8 @@ interface FilterState {
   createdTo: string
   completedFrom: string
   completedTo: string
+  dueFrom: string
+  dueTo: string
 }
 
 interface SavedView {
@@ -97,14 +100,6 @@ const error = ref('')
 const keyword = ref(takeSearchTarget())
 const todosTarget = takeTodosTarget()
 
-function staleCutoff(): string {
-  const date = new Date()
-  date.setDate(date.getDate() - 7)
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
-}
-
 const status = ref<StatusFilter>(todosTarget?.todo ? 'ALL' : (todosTarget?.status ?? 'OPEN'))
 const priority = ref<Priority | ''>('')
 const statusModel = computed({
@@ -127,7 +122,18 @@ const PRIORITY_OPTIONS: { value: Priority | ''; label: string }[] = [
   { value: 'MEDIUM', label: '中' },
   { value: 'LOW', label: '低' }
 ]
+function dueRangeFor(filter: DueFilter): { from: string; to: string } {
+  const today = todayString()
+  if (filter === 'overdue') return { from: '', to: addDays(today, -1) }
+  if (filter === 'today') return { from: today, to: today }
+  return { from: addDays(today, 1), to: addDays(today, 3) }
+}
+
+const initialDueRange = todosTarget?.due ? dueRangeFor(todosTarget.due) : null
 const projectStatus = ref('')
+const dueFrom = ref(initialDueRange?.from ?? '')
+const dueTo = ref(initialDueRange?.to ?? '')
+const urgentOnly = ref(Boolean(todosTarget?.urgent))
 const activeProject = ref<string | null>(todosTarget?.project ?? null)
 const activeModule = ref<string | null>(todosTarget?.module ?? null)
 
@@ -138,6 +144,18 @@ const createScope = ref<{ project: string; module: string } | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
 let pressStart: { x: number; y: number } | null = null
 let dragSincePress = false
+let dragSource: Todo | null = null
+interface TodoDropTarget { project: string; module: string | null }
+const dragTodo = ref<Todo | null>(null)
+const dragPoint = ref<{ x: number; y: number } | null>(null)
+const dragOver = ref<TodoDropTarget | null>(null)
+const dragTargetLabel = computed(() => {
+  const target = dragOver.value
+  if (!target) return ''
+  const title = projects.value.find((project) => project.name === target.project)?.title
+    ?? '未分类'
+  return target.module ? `${title} · ${target.module}` : title
+})
 const saving = ref(false)
 const pendingDelete = ref<Todo | null>(null)
 const busy = ref<string | null>(null)
@@ -175,7 +193,7 @@ const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: 'priority', label: '优先级' }
 ]
 const createdFrom = ref('')
-const createdTo = ref(todosTarget?.stale ? staleCutoff() : '')
+const createdTo = ref('')
 const completedFrom = ref('')
 const completedTo = ref('')
 const selecting = ref(false)
@@ -209,7 +227,7 @@ const showFinished = ref(
 let jumpApplied = showFinished.value || !todosTarget?.project
 let todoJumpApplied = false
 let createApplied = false
-const timeOpen = ref(Boolean(todosTarget?.stale))
+const timeOpen = ref(Boolean(todosTarget?.due))
 const timeMenuRef = ref<HTMLElement | null>(null)
 const timePanelRef = ref<HTMLElement | null>(null)
 const renaming = ref<{ project: string; from: string; text: string } | null>(null)
@@ -221,14 +239,18 @@ const collapsedModules = ref<Set<string>>(new Set())
 const hasFilters = computed(() =>
   keyword.value.trim() !== '' || (status.value !== 'ALL' && status.value !== 'OPEN')
   || priority.value !== '' || activeProject.value !== null || projectStatus.value !== ''
-  || createdFrom.value !== ''
-  || createdTo.value !== '' || completedFrom.value !== '' || completedTo.value !== '')
+  || urgentOnly.value || createdFrom.value !== ''
+  || createdTo.value !== '' || completedFrom.value !== '' || completedTo.value !== ''
+  || dueFrom.value !== '' || dueTo.value !== '')
 const hasCreatedFilter = computed(() => createdFrom.value !== '' || createdTo.value !== '')
 const hasCompletedFilter = computed(() => completedFrom.value !== '' || completedTo.value !== '')
-const hasTimeFilters = computed(() => hasCreatedFilter.value || hasCompletedFilter.value)
+const hasDueFilter = computed(() => dueFrom.value !== '' || dueTo.value !== '')
+const hasTimeFilters = computed(() =>
+  hasCreatedFilter.value || hasCompletedFilter.value || hasDueFilter.value)
 const showEmptyGroups = computed(() =>
   status.value === 'OPEN' && activeProject.value === null && projectStatus.value === ''
-  && keyword.value.trim() === '' && priority.value === '' && !hasTimeFilters.value)
+  && keyword.value.trim() === '' && priority.value === ''
+  && !urgentOnly.value && !hasTimeFilters.value)
 const currentFilterState = computed<FilterState>(() => ({
   keyword: keyword.value,
   status: status.value,
@@ -239,17 +261,21 @@ const currentFilterState = computed<FilterState>(() => ({
   createdFrom: createdFrom.value,
   createdTo: createdTo.value,
   completedFrom: completedFrom.value,
-  completedTo: completedTo.value
+  completedTo: completedTo.value,
+  dueFrom: dueFrom.value,
+  dueTo: dueTo.value
 }))
-const activeView = computed(() => savedViews.value.find(
-  (view) => filtersEqual(view.filters, currentFilterState.value)) ?? null)
+const activeView = computed(() => urgentOnly.value ? null : (savedViews.value.find(
+  (view) => filtersEqual(view.filters, currentFilterState.value)) ?? null))
 const hasNonKeywordFilters = computed(() =>
   (status.value !== 'ALL' && status.value !== 'OPEN') || priority.value !== ''
-  || activeProject.value !== null || projectStatus.value !== '' || hasTimeFilters.value)
+  || activeProject.value !== null || projectStatus.value !== '' || urgentOnly.value
+  || hasTimeFilters.value)
 const timeFilterTitle = computed(() => {
   const parts = [
     hasCreatedFilter.value ? '创建时间' : '',
-    hasCompletedFilter.value ? '完成时间' : ''
+    hasCompletedFilter.value ? '完成时间' : '',
+    hasDueFilter.value ? '截止时间' : ''
   ].filter(Boolean)
   return parts.length ? `时间筛选：已设置${parts.join('、')}` : '时间筛选'
 })
@@ -312,6 +338,8 @@ const visibleItems = computed(() => {
       if (!haystack.includes(needle)) return false
     }
     if (priority.value && todo.priority !== priority.value) return false
+    if (urgentOnly.value && !isUrgent(todo)) return false
+    if (!matchesDueRange(todo)) return false
     if (projectStatus.value
       && todoProjectStatusOf(todo, projects.value) !== projectStatus.value) return false
     if (activeProject.value !== null && projectKeyOf(todo) !== activeProject.value) return false
@@ -357,6 +385,14 @@ function matchesStatus(todo: Todo): boolean {
   if (status.value === 'DONE') return todo.completed
   if (status.value === 'DISMISSED') return todo.dismissed
   return !todo.dismissed
+}
+
+function matchesDueRange(todo: Todo): boolean {
+  if (!dueFrom.value && !dueTo.value) return true
+  if (!todo.dueDate) return false
+  if (dueFrom.value && todo.dueDate < dueFrom.value) return false
+  if (dueTo.value && todo.dueDate > dueTo.value) return false
+  return true
 }
 
 function projectKeyOf(todo: Todo): string {
@@ -461,10 +497,13 @@ function clearAllFilters(): void {
   keyword.value = ''
   status.value = 'OPEN'
   priority.value = ''
+  urgentOnly.value = false
   createdFrom.value = ''
   createdTo.value = ''
   completedFrom.value = ''
   completedTo.value = ''
+  dueFrom.value = ''
+  dueTo.value = ''
 }
 
 function loadSavedViews(): SavedView[] {
@@ -493,7 +532,9 @@ function loadSavedViews(): SavedView[] {
           createdFrom: typeof filters.createdFrom === 'string' ? filters.createdFrom : '',
           createdTo: typeof filters.createdTo === 'string' ? filters.createdTo : '',
           completedFrom: typeof filters.completedFrom === 'string' ? filters.completedFrom : '',
-          completedTo: typeof filters.completedTo === 'string' ? filters.completedTo : ''
+          completedTo: typeof filters.completedTo === 'string' ? filters.completedTo : '',
+          dueFrom: typeof filters.dueFrom === 'string' ? filters.dueFrom : '',
+          dueTo: typeof filters.dueTo === 'string' ? filters.dueTo : ''
         }
       }]
     })
@@ -513,12 +554,14 @@ function filtersEqual(left: FilterState, right: FilterState): boolean {
     && left.createdFrom === right.createdFrom
     && left.createdTo === right.createdTo && left.completedFrom === right.completedFrom
     && left.completedTo === right.completedTo
+    && left.dueFrom === right.dueFrom && left.dueTo === right.dueTo
 }
 
 function applyView(view: SavedView): void {
   keyword.value = view.filters.keyword
   status.value = view.filters.status
   priority.value = view.filters.priority
+  urgentOnly.value = false
   activeProject.value = view.filters.project
   activeModule.value = view.filters.module
   projectStatus.value = view.filters.projectStatus
@@ -526,6 +569,8 @@ function applyView(view: SavedView): void {
   createdTo.value = view.filters.createdTo
   completedFrom.value = view.filters.completedFrom
   completedTo.value = view.filters.completedTo
+  dueFrom.value = view.filters.dueFrom
+  dueTo.value = view.filters.dueTo
   if (activeProject.value) expandProject(activeProject.value)
   if (activeProject.value && activeModule.value) {
     expandModule(activeProject.value, activeModule.value)
@@ -665,12 +710,21 @@ function toggleViewMode(): void {
 }
 
 function todoScope(todo: Todo): string {
-  return todo.module ? `${projectTitleOf(todo)} · ${todo.module}` : projectTitleOf(todo)
+  const module = moduleOf(todo)
+  return module ? `${projectTitleOf(todo)} · ${module}` : projectTitleOf(todo)
 }
 
 function filterByScope(todo: Todo): void {
   activeProject.value = projectKeyOf(todo)
-  activeModule.value = todo.module || null
+  activeModule.value = moduleOf(todo) || null
+}
+
+function moduleOf(todo: Todo): string {
+  if (!todo.module) return ''
+  const project = todo.project
+    ? projects.value.find((item) => item.name === todo.project)
+    : undefined
+  return project?.modules.includes(todo.module) ? todo.module : ''
 }
 
 function buildGroups(todos: Todo[], projectList: Project[],
@@ -679,7 +733,9 @@ function buildGroups(todos: Todo[], projectList: Project[],
   const buckets = new Map<string, Map<string, Todo[]>>()
   for (const todo of todos) {
     const projectName = todo.project && projectMap.has(todo.project) ? todo.project : ''
-    const moduleName = todo.module ?? ''
+    const project = projectName ? projectMap.get(projectName) : undefined
+    // 项目里已删除的模块不再单独成组，待办回落到「未分模块」
+    const moduleName = todo.module && project?.modules.includes(todo.module) ? todo.module : ''
     const modules = buckets.get(projectName) ?? new Map<string, Todo[]>()
     const list = modules.get(moduleName) ?? []
     list.push(todo)
@@ -937,7 +993,8 @@ function matchesSelection(todo: Todo): boolean {
 }
 
 function matchesClientFilters(todo: Todo): boolean {
-  return matchesSelection(todo) && matchesCreatedRange(todo) && matchesCompletedRange(todo)
+  return matchesSelection(todo) && matchesCreatedRange(todo)
+    && matchesCompletedRange(todo) && matchesDueRange(todo) && (!urgentOnly.value || isUrgent(todo))
 }
 
 async function quickCreate(projectKey: string, moduleName: string,
@@ -1280,7 +1337,8 @@ function buildCopyText(todos: Todo[]): string {
   return todos.map((todo) => {
     const marker = todo.completed ? '[x]' : todo.dismissed ? '[-]' : '[ ]'
     let line = `${marker} ${todo.title}（${priorityLabel(todo.priority)}） — ${projectTitleOf(todo)}`
-    if (todo.module) line += ` / ${todo.module}`
+    const module = moduleOf(todo)
+    if (module) line += ` / ${module}`
     if (todo.reporter) line += ` · 姓名 ${todo.reporter}`
     if (todo.dueDate) line += ` · 截止 ${todo.dueDate}`
     if (todo.dismissed) line += ' · 不用处理'
@@ -1385,6 +1443,14 @@ function openTodoMenu(event: MouseEvent, todo: Todo): void {
       disabled,
       onSelect: () => void togglePin(todo)
     },
+    ...(todo.recurrence && todo.recurrence !== 'NONE'
+      ? [{
+          label: '停止重复',
+          icon: 'refresh' as const,
+          disabled,
+          onSelect: () => void stopRecurrence(todo)
+        }]
+      : []),
     { divider: true, label: '' },
     {
       label: '新建关联笔记',
@@ -1682,6 +1748,36 @@ function completeNow(targets: Todo[]): void {
     { message: `已完成 ${targets.length} 条`, undo: before })
 }
 
+async function stopRecurrence(todo: Todo): Promise<void> {
+  if (busy.value) return
+  busy.value = todo.name
+  const snapshotItems = items.value.slice()
+  try {
+    const updated = await updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: todo.priority,
+      project: todo.project,
+      module: todo.module,
+      reporter: todo.reporter,
+      dueDate: todo.dueDate,
+      completed: todo.completed,
+      dismissed: todo.dismissed,
+      pinned: todo.pinned,
+      recurrence: 'NONE'
+    })
+    const index = items.value.findIndex((item) => item.name === todo.name)
+    if (index >= 0) items.value[index] = updated
+    showToast('已停止重复')
+  } catch (err) {
+    items.value = snapshotItems
+    handleError(err)
+  } finally {
+    busy.value = null
+    persistCache()
+  }
+}
+
 async function togglePin(todo: Todo): Promise<void> {
   if (busy.value) return
   busy.value = todo.name
@@ -1756,7 +1852,7 @@ function exportTodosCsv(list: Todo[], label: string): void {
     priorityLabel(todo.priority),
     todo.pinned ? '是' : '',
     projectTitle(todo.project),
-    todo.module ?? '',
+    moduleOf(todo),
     todo.title,
     todo.detail ?? '',
     todo.reporter ?? '',
@@ -2060,17 +2156,100 @@ function onViewPointerDown(event: PointerEvent): void {
   if (event.button !== 0 || !viewRoot.value?.contains(event.target as Node)) return
   pressStart = { x: event.clientX, y: event.clientY }
   dragSincePress = false
+  dragSource = null
+  if (event.pointerType === 'touch') return
+  if (viewMode.value !== 'grouped' || selecting.value || bulkBusy.value) return
+  const target = event.target as HTMLElement | null
+  if (!target?.closest('.ws-todo-body') || target.closest('button, a, input, label')) return
+  const name = target.closest<HTMLElement>('.ws-todo')?.dataset.todoName
+  dragSource = items.value.find((todo) => todo.name === name) ?? null
+}
+
+function updateDragOver(x: number, y: number): void {
+  dragPoint.value = { x, y }
+  const target = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-drop-project]')
+  dragOver.value = target
+    ? {
+        project: target.dataset.dropProject ?? '',
+        module: target.hasAttribute('data-drop-module')
+          ? (target.dataset.dropModule ?? '')
+          : null
+      }
+    : null
 }
 
 function onViewPointerMove(event: PointerEvent): void {
-  if (!pressStart || dragSincePress) return
-  if (Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) > 5) {
+  if (!pressStart) return
+  if (!dragSincePress) {
+    if (Math.hypot(event.clientX - pressStart.x, event.clientY - pressStart.y) <= 5) return
     dragSincePress = true
+    if (dragSource) {
+      dragTodo.value = dragSource
+      document.body.classList.add('ws-todo-dragging')
+      const row = viewRoot.value?.querySelector<HTMLElement>(
+        `.ws-todo[data-todo-name="${CSS.escape(dragSource.name)}"]`)
+      row?.classList.add('ws-todo-drag-source')
+    }
   }
+  if (dragTodo.value) updateDragOver(event.clientX, event.clientY)
 }
 
-function onViewPointerUp(): void {
+function finishTodoDrag(): void {
+  dragTodo.value = null
+  dragPoint.value = null
+  dragOver.value = null
+  document.body.classList.remove('ws-todo-dragging')
+  viewRoot.value?.querySelectorAll('.ws-todo-drag-source')
+    .forEach((row) => row.classList.remove('ws-todo-drag-source'))
+}
+
+function onViewPointerUp(event: PointerEvent): void {
   pressStart = null
+  dragSource = null
+  if (!dragTodo.value) return
+  const todo = dragTodo.value
+  updateDragOver(event.clientX, event.clientY)
+  const target = dragOver.value
+  finishTodoDrag()
+  if (target) void moveTodoTo(todo, target)
+}
+
+function onViewPointerCancel(): void {
+  pressStart = null
+  dragSource = null
+  finishTodoDrag()
+}
+
+async function moveTodoTo(todo: Todo, target: TodoDropTarget): Promise<void> {
+  const project = target.project || null
+  const module = project ? (target.module || null) : null
+  if ((todo.project ?? '') === (project ?? '') && (todo.module ?? '') === (module ?? '')) return
+  const before = captureBefore([todo])
+  const projectTitle = projects.value.find((item) => item.name === project)?.title ?? project
+  const label = project
+    ? `${projectTitle}${module ? ` · ${module}` : ''}`
+    : '未分类'
+  try {
+    await ensureProjectModule(project, module)
+    const updated = await updateTodo(todo.name, {
+      title: todo.title,
+      detail: todo.detail,
+      priority: todo.priority,
+      project,
+      module,
+      reporter: todo.reporter,
+      dueDate: todo.dueDate,
+      completed: todo.completed,
+      dismissed: todo.dismissed,
+      pinned: todo.pinned
+    })
+    const index = items.value.findIndex((item) => item.name === updated.name)
+    if (index >= 0) items.value[index] = updated
+    persistCache()
+    showUndoToast(`已移动到 ${label}`, () => void undoBulk(before))
+  } catch (err) {
+    handleError(err)
+  }
 }
 
 function onViewClickCapture(event: MouseEvent): void {
@@ -2086,16 +2265,19 @@ onMounted(() => {  void load({ silent: Boolean(cachedTodos) })
   window.addEventListener('pointerdown', onViewPointerDown, true)
   window.addEventListener('pointermove', onViewPointerMove, true)
   window.addEventListener('pointerup', onViewPointerUp, true)
+  window.addEventListener('pointercancel', onViewPointerCancel, true)
 })
 
 onUnmounted(() => {
   if (toastTimer) window.clearTimeout(toastTimer)
   pendingUndo.value = null
+  finishTodoDrag()
   document.removeEventListener('pointerdown', handleMenuPointerDown)
   document.removeEventListener('keydown', handleMenuKeydown)
   window.removeEventListener('pointerdown', onViewPointerDown, true)
   window.removeEventListener('pointermove', onViewPointerMove, true)
   window.removeEventListener('pointerup', onViewPointerUp, true)
+  window.removeEventListener('pointercancel', onViewPointerCancel, true)
 })
 </script>
 
@@ -2491,110 +2673,143 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="ws-scope-bar mb-4 flex flex-wrap items-center gap-2">
-      <SearchSelect
-        v-model="filterProjectModel"
-        :options="filterProjectOptions"
-        label="项目"
-        :active="activeProject !== null"
-        aria-label="按项目筛选"
-        class="w-[180px] shrink-0"
-      />
-      <SearchSelect
-        v-model="filterModuleModel"
-        :options="filterModuleOptions"
-        label="模块"
-        :active="activeModule !== null"
-        aria-label="按模块筛选"
-        class="w-[156px] shrink-0"
-      />
-      <SearchSelect
-        v-model="projectStatus"
-        :options="projectStatusOptions"
-        label="项目状态"
-        :active="projectStatus !== ''"
-        aria-label="按项目状态筛选"
-        class="w-[180px] shrink-0"
-      />
-      <SearchSelect
-        v-model="statusModel"
-        :options="STATUS_OPTIONS"
-        label="状态"
-        :active="status !== 'OPEN'"
-        aria-label="按完成状态筛选"
-        class="w-[120px] shrink-0"
-      />
-      <SearchSelect
-        v-model="priorityModel"
-        :options="PRIORITY_OPTIONS"
-        label="优先级"
-        :active="priority !== ''"
-        aria-label="按优先级筛选"
-        class="w-[150px] shrink-0"
-      />
-      <Button
-        v-if="activeProject !== null || activeModule !== null || projectStatus !== ''"
-        variant="ghost"
-        size="sm"
-        class="ws-clear-filters text-[#007AFF] hover:bg-[#007AFF]/[0.08] hover:text-[#007AFF] dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.14] dark:hover:text-[#64B5FF]"
-        @click="clearScopeFilters"
+    <div class="ws-scope-bar mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div
+        class="ws-scope-left flex min-w-0 flex-wrap items-center gap-1.5 rounded-[16px] border border-black/[0.05] bg-black/[0.02] p-1 dark:border-white/[0.06] dark:bg-white/[0.025]"
+        role="group"
+        aria-label="项目范围筛选"
       >
-        <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-        </svg>
-        清除筛选
-      </Button>
+        <SearchSelect
+          v-model="filterProjectModel"
+          :options="filterProjectOptions"
+          label="项目"
+          :active="activeProject !== null"
+          aria-label="按项目筛选"
+          class="w-[160px] shrink-0"
+        />
+        <SearchSelect
+          v-model="filterModuleModel"
+          :options="filterModuleOptions"
+          label="模块"
+          :active="activeModule !== null"
+          aria-label="按模块筛选"
+          class="w-[140px] shrink-0"
+        />
+        <SearchSelect
+          v-model="projectStatus"
+          :options="projectStatusOptions"
+          label="项目状态"
+          :active="projectStatus !== ''"
+          aria-label="按项目状态筛选"
+          class="w-[160px] shrink-0"
+        />
+      </div>
+      <div
+        class="ws-scope-right flex min-w-0 flex-wrap items-center gap-1.5 rounded-[16px] border border-black/[0.05] bg-black/[0.02] p-1 dark:border-white/[0.06] dark:bg-white/[0.025]"
+        role="group"
+        aria-label="待办属性筛选"
+      >
+        <SearchSelect
+          v-model="statusModel"
+          :options="STATUS_OPTIONS"
+          label="状态"
+          :active="status !== 'OPEN'"
+          aria-label="按完成状态筛选"
+          class="w-[118px] shrink-0"
+        />
+        <SearchSelect
+          v-model="priorityModel"
+          :options="PRIORITY_OPTIONS"
+          label="优先级"
+          :active="priority !== ''"
+          aria-label="按优先级筛选"
+          class="w-[132px] shrink-0"
+        />
+        <button
+          v-if="urgentOnly"
+          type="button"
+          class="ws-urgent-chip inline-flex h-11 shrink-0 items-center gap-1.5 rounded-full border border-[#FF9500]/45 bg-[#FF9500]/[0.10] pl-3.5 pr-2.5 text-[13px] text-[#C77700] transition-colors duration-200 ease-[var(--ws-ease)] hover:bg-[#FF9500]/[0.16] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#FF9500]/20 dark:border-[#FF9F0A]/45 dark:bg-[#FF9F0A]/[0.14] dark:text-[#FFB340] dark:hover:bg-[#FF9F0A]/[0.20]"
+          title="快逾期：无截止日期创建超过 7 天，有截止日期在 3 天内（含逾期），点击移除"
+          @click="urgentOnly = false"
+        >
+          <span class="font-medium">快逾期</span>
+          <svg class="h-3.5 w-3.5 opacity-60" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </button>
+        <Button
+          v-if="activeProject !== null || activeModule !== null || projectStatus !== ''"
+          variant="ghost"
+          size="sm"
+          class="ws-clear-filters text-[#007AFF] hover:bg-[#007AFF]/[0.08] hover:text-[#007AFF] dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.14] dark:hover:text-[#64B5FF]"
+          @click="clearScopeFilters"
+        >
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+          清除筛选
+        </Button>
+      </div>
     </div>
 
     <div
       v-if="timeOpen"
       id="ws-time-filter"
       ref="timePanelRef"
-      class="ws-date-filter mb-4 inline-flex max-w-full flex-wrap items-center gap-x-5 gap-y-2 rounded-[18px] border border-black/[0.06] bg-white/[0.55] px-4 py-3 text-[12px] text-[#6e6e73] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#98989d]"
+      class="ws-date-filter mb-4 rounded-[18px] border border-black/[0.06] bg-white/[0.55] px-4 py-3 text-[12px] text-[#6e6e73] backdrop-blur-xl dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-[#98989d]"
     >
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="font-medium">创建时间</span>
-        <input
-          v-model="createdFrom"
-          type="date"
-          class="ws-date"
-          aria-label="创建时间起"
-        />
-        <span>至</span>
-        <input
-          v-model="createdTo"
-          type="date"
-          class="ws-date"
-          aria-label="创建时间止"
-        />
-        <Button
-          v-if="hasCreatedFilter"
-          variant="ghost"
-          size="sm"
-          @click="createdFrom = ''; createdTo = ''"
-        >清除</Button>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="font-medium">完成时间</span>
-        <input
-          v-model="completedFrom"
-          type="date"
-          class="ws-date"
-          aria-label="完成时间起"
-        />
-        <span>至</span>
-        <input
-          v-model="completedTo"
-          type="date"
-          class="ws-date"
-          aria-label="完成时间止"
-        />
-        <Button
-          v-if="hasCompletedFilter"
-          variant="ghost"
-          size="sm"
-          @click="completedFrom = ''; completedTo = ''"
-        >清除</Button>
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(260px,1fr))] gap-x-6 gap-y-3">
+        <div class="ws-date-field min-w-0" data-date-field="created">
+          <div class="mb-1.5 flex h-5 items-center justify-between gap-2 text-[11px]">
+            <span class="font-medium">创建时间</span>
+            <button
+              v-if="hasCreatedFilter"
+              type="button"
+              class="ws-date-clear rounded-full px-1 text-[#007AFF] transition-colors hover:bg-[#007AFF]/[0.08] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/20 dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.14]"
+              title="清除创建时间筛选"
+              @click="createdFrom = ''; createdTo = ''"
+            >清除</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input v-model="createdFrom" type="date" class="ws-date min-w-0 flex-1" aria-label="创建时间起" />
+            <span class="shrink-0 text-[10px] opacity-60">至</span>
+            <input v-model="createdTo" type="date" class="ws-date min-w-0 flex-1" aria-label="创建时间止" />
+          </div>
+        </div>
+        <div class="ws-date-field min-w-0" data-date-field="completed">
+          <div class="mb-1.5 flex h-5 items-center justify-between gap-2 text-[11px]">
+            <span class="font-medium">完成时间</span>
+            <button
+              v-if="hasCompletedFilter"
+              type="button"
+              class="ws-date-clear rounded-full px-1 text-[#007AFF] transition-colors hover:bg-[#007AFF]/[0.08] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/20 dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.14]"
+              title="清除完成时间筛选"
+              @click="completedFrom = ''; completedTo = ''"
+            >清除</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input v-model="completedFrom" type="date" class="ws-date min-w-0 flex-1" aria-label="完成时间起" />
+            <span class="shrink-0 text-[10px] opacity-60">至</span>
+            <input v-model="completedTo" type="date" class="ws-date min-w-0 flex-1" aria-label="完成时间止" />
+          </div>
+        </div>
+        <div class="ws-date-field min-w-0" data-date-field="due">
+          <div class="mb-1.5 flex h-5 items-center justify-between gap-2 text-[11px]">
+            <span class="font-medium">截止时间</span>
+            <button
+              v-if="hasDueFilter"
+              type="button"
+              class="ws-date-clear rounded-full px-1 text-[#007AFF] transition-colors hover:bg-[#007AFF]/[0.08] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/20 dark:text-[#64B5FF] dark:hover:bg-[#0A84FF]/[0.14]"
+              title="清除截止时间筛选"
+              @click="dueFrom = ''; dueTo = ''"
+            >清除</button>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input v-model="dueFrom" type="date" class="ws-date min-w-0 flex-1" aria-label="截止时间起" />
+            <span class="shrink-0 text-[10px] opacity-60">至</span>
+            <input v-model="dueTo" type="date" class="ws-date min-w-0 flex-1" aria-label="截止时间止" />
+          </div>
+        </div>
       </div>
     </div>
     </template>
@@ -2904,9 +3119,14 @@ onUnmounted(() => {
         v-for="group in groups"
         :key="group.key || 'unclassified'"
         class="ws-group overflow-hidden rounded-[18px] border shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-200 ease-[var(--ws-ease)]"
-        :class="activeProject === group.key && activeModule === null
-          ? 'border-black/[0.07] bg-black/[0.02] dark:border-white/[0.12] dark:bg-white/[0.035]'
-          : 'border-white/20 bg-white/[0.72] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70'"
+        :data-drop-project="group.key"
+        :class="[
+          activeProject === group.key && activeModule === null
+            ? 'border-black/[0.07] bg-black/[0.02] dark:border-white/[0.12] dark:bg-white/[0.035]'
+            : 'border-white/20 bg-white/[0.72] dark:border-white/[0.08] dark:bg-[#1c1c1e]/70',
+          dragOver && dragOver.project === group.key && dragOver.module === null
+            ? 'ws-drop-target' : ''
+        ]"
       >
         <header
           class="ws-group-header group/project flex items-center gap-1 px-2 pb-1 pt-2"
@@ -3089,9 +3309,15 @@ onUnmounted(() => {
             v-for="moduleGroup in group.modules"
             :key="moduleGroup.key || 'unassigned'"
             class="ws-module group/module rounded-2xl transition-colors duration-200 ease-[var(--ws-ease)]"
-            :class="activeProject === group.key && activeModule === moduleGroup.key
-              ? 'bg-black/[0.035] dark:bg-white/[0.055]'
-              : ''"
+            :data-drop-project="group.key"
+            :data-drop-module="moduleGroup.key"
+            :class="[
+              activeProject === group.key && activeModule === moduleGroup.key
+                ? 'bg-black/[0.035] dark:bg-white/[0.055]'
+                : '',
+              dragOver && dragOver.project === group.key && dragOver.module === moduleGroup.key
+                ? 'ws-drop-target' : ''
+            ]"
           >
             <div
               v-if="moduleGroup.label"
@@ -3402,6 +3628,18 @@ onUnmounted(() => {
       </span>
       <span class="ws-nav-hint hidden sm:inline"> · ↑↓/J/K 选择，Enter 打开，X 完成，Ctrl+Z 撤销</span>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="dragTodo && dragPoint"
+        class="ws-todo-drag-ghost"
+        :style="{ left: `${dragPoint.x + 14}px`, top: `${dragPoint.y + 12}px` }"
+        aria-hidden="true"
+      >
+        <span class="ws-todo-drag-ghost__title">{{ dragTodo.title }}</span>
+        <span class="ws-todo-drag-ghost__hint">{{ dragTargetLabel || '拖到项目或模块' }}</span>
+      </div>
+    </Teleport>
 
     <TodoForm
       v-if="formOpen"

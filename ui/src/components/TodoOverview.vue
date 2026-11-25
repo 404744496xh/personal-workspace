@@ -4,6 +4,7 @@ import type { Project, Todo } from '../types'
 import { PROJECT_STATUSES, projectStatusMeta, projectStatusOf } from '../projectStatus'
 import type { NotesTarget, TodosTarget } from '../searchTarget'
 import { copyText, formatDate, messageOf, todayString } from '../utils'
+import { isUrgent } from '../urgency'
 import { createNote, generateReport } from '../api'
 import { useToast } from '../lib/toast'
 import { useContextMenu } from '../contextMenu'
@@ -161,13 +162,8 @@ const dismissedCount = computed(() =>
 const todayNew = computed(() =>
   props.todos.filter((todo) => !todo.completed && !todo.dismissed
     && todo.createdAt && formatDate(todo.createdAt) === today).length)
-const staleCount = computed(() => {
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 7)
-  const key = keyOf(cutoff)
-  return props.todos.filter((todo) => !todo.completed && !todo.dismissed
-    && todo.createdAt && formatDate(todo.createdAt) < key).length
-})
+const urgentCount = computed(() =>
+  props.todos.filter((todo) => isUrgent(todo, today)).length)
 
 const activeProjects = computed(() =>
   props.projects.filter((project) => projectStatusOf(project) !== 'ACCEPTED'))
@@ -302,7 +298,7 @@ function openDayMenu(event: MouseEvent, day: string): void {
   ])
 }
 
-function openStatMenu(event: MouseEvent, stat: 'open' | 'stale' | 'dismissed'): void {
+function openStatMenu(event: MouseEvent, stat: 'open' | 'urgent' | 'dismissed'): void {
   if (stat === 'open') {
     openContextMenu(event, [
       { label: '查看未完成待办', icon: 'checklist', onSelect: () => emit('openTodos', { status: 'OPEN' }) },
@@ -310,10 +306,10 @@ function openStatMenu(event: MouseEvent, stat: 'open' | 'stale' | 'dismissed'): 
     ])
     return
   }
-  if (stat === 'stale') {
+  if (stat === 'urgent') {
     openContextMenu(event, [
-      { label: '查看快逾期待办', icon: 'clock', onSelect: () => emit('openTodos', { status: 'OPEN', stale: true }) },
-      { label: '复制数量', icon: 'copy', onSelect: () => copyCount(staleCount.value, '快逾期') }
+      { label: '查看快逾期待办', icon: 'clock', onSelect: () => emit('openTodos', { status: 'OPEN', urgent: true }) },
+      { label: '复制数量', icon: 'copy', onSelect: () => copyCount(urgentCount.value, '快逾期') }
     ])
     return
   }
@@ -357,8 +353,9 @@ async function saveReport(): Promise<void> {
 }
 
 function detailMeta(todo: Todo): string {
-  const project = props.projects.find((item) => item.name === todo.project)?.title
-  return [project, todo.module].filter(Boolean).join(' · ')
+  const project = props.projects.find((item) => item.name === todo.project)
+  const module = todo.module && project?.modules.includes(todo.module) ? todo.module : ''
+  return [project?.title, module].filter(Boolean).join(' · ')
 }
 
 function heatClass(completed: number): string {
@@ -369,8 +366,8 @@ function heatClass(completed: number): string {
   return 'bg-[#34C759]/[0.28]'
 }
 
-function openStaleTodos(): void {
-  emit('openTodos', { status: 'OPEN', stale: true })
+function openUrgentTodos(): void {
+  emit('openTodos', { status: 'OPEN', urgent: true })
 }
 
 function openTodoDetail(todo: Todo): void {
@@ -648,16 +645,15 @@ function openTodoDetail(todo: Todo): void {
         <button
           type="button"
           class="ws-overview-stat ws-overview-stale-card flex flex-col justify-center rounded-[18px] border border-white/20 bg-white/[0.72] px-4 py-3 text-left shadow-[0_4px_24px_rgba(0,0,0,0.08)] backdrop-blur-xl saturate-[180%] transition-colors duration-150 hover:bg-white/[0.92] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 dark:border-white/[0.08] dark:bg-[#1c1c1e]/70 dark:hover:bg-[#232325]/80"
-          aria-label="查看创建超过 7 天的待办"
-          title="查看创建超过 7 天的待办"
-          @contextmenu.prevent.stop="openStatMenu($event, 'stale')"
-          @click="openStaleTodos"
+          aria-label="查看快逾期待办：无截止日期创建超过 7 天，有截止日期在 3 天内（含逾期）"
+          title="查看快逾期待办：无截止日期创建超过 7 天，有截止日期在 3 天内（含逾期）"
+          @contextmenu.prevent.stop="openStatMenu($event, 'urgent')"
+          @click="openUrgentTodos"
         >
           <p class="text-[12px] text-[#6e6e73] dark:text-[#98989d]">快逾期</p>
           <p class="ws-overview-stale mt-0.5 text-[28px] font-semibold leading-none tabular-nums"
-            :class="staleCount > 0 ? 'text-[#FF9500]' : ''"
-          >{{ staleCount }}</p>
-          <p class="mt-1 text-[11px] text-[#6e6e73] dark:text-[#98989d]">创建超过 7 天</p>
+            :class="urgentCount > 0 ? 'text-[#FF9500]' : ''"
+          >{{ urgentCount }}</p>
         </button>
         <button
           type="button"

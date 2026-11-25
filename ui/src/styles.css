@@ -99,6 +99,54 @@
   text-decoration: line-through;
 }
 
+body.ws-todo-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+body.ws-todo-dragging .ws-todo-drag-source {
+  opacity: 0.4;
+}
+
+.ws-drop-target {
+  background-color: rgba(0, 122, 255, 0.06);
+  box-shadow: inset 0 0 0 2px rgba(0, 122, 255, 0.42);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-drop-target {
+  background-color: rgba(10, 132, 255, 0.12);
+}
+
+.ws-todo-drag-ghost {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  max-width: 280px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(29, 29, 31, 0.92);
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.ws-todo-drag-ghost__title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-todo-drag-ghost__hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
 /* Pin the dialog action bar to the bottom edge so 保存 stays reachable while
    the body scrolls. The -24px bleed matches the modal's p-6 padding. */
 #workspace-app .ws-modal:not(.ws-modal-compact):not(.ws-project-modal) .ws-modal-footer {
@@ -155,6 +203,7 @@
   background: transparent;
 }
 
+/* 不常驻工具栏：格式化和插块走右键菜单与左侧块手柄 */
 #workspace-app .ws-note-editor .vditor-toolbar {
   display: none;
 }
@@ -262,6 +311,78 @@
 #workspace-app .ws-note-editor .vditor-ir span.vditor-ir__preview img {
   max-width: 100%;
   vertical-align: middle;
+}
+
+/* 块左侧悬停手柄：+ 插块，六点柄拖动排序/打开块菜单 */
+#workspace-app .ws-block-gutter {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  height: 26px;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+#workspace-app .ws-block-gutter:hover {
+  opacity: 1;
+}
+
+#workspace-app .ws-block-gutter__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 26px;
+  padding: 0;
+  color: rgba(29, 29, 31, 0.4);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+#workspace-app .ws-block-gutter__btn:hover {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+#workspace-app .ws-block-gutter__handle {
+  cursor: grab;
+}
+
+#workspace-app .ws-block-gutter__handle:active {
+  cursor: grabbing;
+}
+
+#workspace-app .ws-block-dragging {
+  opacity: 0.35;
+}
+
+#workspace-app .ws-block-drop-line {
+  position: absolute;
+  z-index: 6;
+  height: 2px;
+  pointer-events: none;
+  background: #007aff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.12);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-block-gutter__btn {
+  color: rgba(245, 245, 247, 0.45);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-block-gutter__btn:hover {
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+#workspace-app[data-ws-theme="dark"] .ws-block-drop-line {
+  background: #0a84ff;
+  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.18);
 }
 
 /* 大纲折叠：展开时左缘一个细箭头，收起后留一条贴右缘的轨道 */

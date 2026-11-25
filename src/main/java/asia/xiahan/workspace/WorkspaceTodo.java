@@ -85,6 +85,15 @@ public class WorkspaceTodo extends AbstractExtension {
         @Schema(description = "Whether the todo is pinned for today's focus")
         private boolean pinned;
 
+        @Schema(
+            description = "Repeat rule; next occurrence is generated when completed",
+            allowableValues = {"NONE", "DAILY", "WEEKLY", "MONTHLY"}
+        )
+        private String recurrence;
+
+        @Schema(description = "Shared id for todos in the same repeat series", maxLength = 64)
+        private String seriesId;
+
         @Schema(description = "Custom creation time in ISO-8601; falls back to metadata time")
         private String createdAt;
 
@@ -206,6 +215,22 @@ public class WorkspaceTodo extends AbstractExtension {
 
         public void setPinned(boolean pinned) {
             this.pinned = pinned;
+        }
+
+        public String getRecurrence() {
+            return recurrence;
+        }
+
+        public void setRecurrence(String recurrence) {
+            this.recurrence = recurrence;
+        }
+
+        public String getSeriesId() {
+            return seriesId;
+        }
+
+        public void setSeriesId(String seriesId) {
+            this.seriesId = seriesId;
         }
 
         public String getCreatedAt() {

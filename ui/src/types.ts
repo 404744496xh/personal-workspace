@@ -1,6 +1,12 @@
 import type { ProjectStatus } from './projectStatus'
 
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW'
+export type Recurrence = 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
+
+export interface ProjectStatusChange {
+  status: ProjectStatus
+  startedAt: string | null
+}
 
 export interface Project {
   name: string
@@ -10,6 +16,7 @@ export interface Project {
   note: string | null
   links: string[]
   tags: string[]
+  statusHistory?: ProjectStatusChange[]
 }
 
 export interface Todo {
@@ -27,6 +34,7 @@ export interface Todo {
   dismissed: boolean
   dismissedAt: string | null
   pinned: boolean
+  recurrence: Recurrence | null
   createdAt: string | null
 }
 
@@ -48,6 +56,7 @@ export interface TodoPayload {
   completed: boolean
   dismissed?: boolean
   pinned?: boolean
+  recurrence?: Recurrence | null
   createdAt?: string | null
 }
 
@@ -55,6 +64,7 @@ export interface ProjectPayload {
   title: string
   modules: string[]
   status?: ProjectStatus
+  statusHistory?: { status: ProjectStatus; startedAt: string }[]
   note?: string | null
   links?: string[]
   tags?: string[]

@@ -34,6 +34,14 @@ export function todayString(): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
+export function addDays(key: string, days: number): string {
+  const [year, month, day] = key.split('-').map(Number)
+  const date = new Date(year, month - 1, day + days)
+  const nextMonth = String(date.getMonth() + 1).padStart(2, '0')
+  const nextDay = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${nextMonth}-${nextDay}`
+}
+
 export function formatDateTime(value: string | null): string {
   if (!value) return ''
   const date = new Date(value)

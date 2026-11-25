@@ -41,6 +41,12 @@ const todoOptions = computed(() =>
   })
 )
 
+watch(project, () => {
+  if (module.value && !projectModules.value.includes(module.value)) {
+    module.value = ''
+  }
+})
+
 watch([project, module], () => {
   const allowed = new Set(todoOptions.value.map((todo) => todo.name))
   for (const name of [...selectedTodos.value]) {

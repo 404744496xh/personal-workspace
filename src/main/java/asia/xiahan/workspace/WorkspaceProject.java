@@ -45,6 +45,9 @@ public class WorkspaceProject extends AbstractExtension {
         )
         private String status;
 
+        @Schema(description = "Status changes in chronological order, written by the server")
+        private List<StatusChange> statusHistory = new ArrayList<>();
+
         @Schema(description = "Legacy progress percentage, kept for old records only",
             minimum = "0", maximum = "100")
         private Integer progress;
@@ -85,6 +88,14 @@ public class WorkspaceProject extends AbstractExtension {
             this.status = status;
         }
 
+        public List<StatusChange> getStatusHistory() {
+            return statusHistory;
+        }
+
+        public void setStatusHistory(List<StatusChange> statusHistory) {
+            this.statusHistory = statusHistory == null ? new ArrayList<>() : statusHistory;
+        }
+
         public Integer getProgress() {
             return progress;
         }
@@ -123,6 +134,34 @@ public class WorkspaceProject extends AbstractExtension {
 
         public void setTags(List<String> tags) {
             this.tags = tags == null ? new ArrayList<>() : tags;
+        }
+    }
+
+    public static class StatusChange {
+
+        @Schema(
+            description = "Status from this moment on",
+            allowableValues = {"NOT_STARTED", "DEV", "TEST", "RELEASED", "ACCEPTED"}
+        )
+        private String status;
+
+        @Schema(description = "ISO-8601 start time", maxLength = 40)
+        private String startedAt;
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getStartedAt() {
+            return startedAt;
+        }
+
+        public void setStartedAt(String startedAt) {
+            this.startedAt = startedAt;
         }
     }
 }

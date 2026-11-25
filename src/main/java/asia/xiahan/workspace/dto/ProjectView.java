@@ -10,8 +10,12 @@ public record ProjectView(
     String status,
     String note,
     List<String> links,
-    List<String> tags
+    List<String> tags,
+    List<StatusChangeView> statusHistory
 ) {
+
+    public record StatusChangeView(String status, String startedAt) {
+    }
 
     public static String statusOf(WorkspaceProject project) {
         return statusOf(project.getSpec());
@@ -31,7 +35,25 @@ public record ProjectView(
             statusOf(spec),
             spec.getNote(),
             spec.getLinks() == null ? List.of() : List.copyOf(spec.getLinks()),
-            spec.getTags() == null ? List.of() : List.copyOf(spec.getTags())
+            spec.getTags() == null ? List.of() : List.copyOf(spec.getTags()),
+            historyOf(project)
         );
+    }
+
+    private static List<StatusChangeView> historyOf(WorkspaceProject project) {
+        var history = project.getSpec().getStatusHistory();
+        if (history != null && !history.isEmpty()) {
+            var changes = history.stream()
+                .filter(change -> change != null && change.getStatus() != null)
+                .map(change -> new StatusChangeView(change.getStatus(), change.getStartedAt()))
+                .toList();
+            if (!changes.isEmpty()) {
+                return changes;
+            }
+        }
+        var metadata = project.getMetadata();
+        var startedAt = metadata == null || metadata.getCreationTimestamp() == null
+            ? null : metadata.getCreationTimestamp().toString();
+        return List.of(new StatusChangeView(statusOf(project), startedAt));
     }
 }

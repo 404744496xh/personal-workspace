@@ -11,7 +11,8 @@ import {
   listNotes,
   listProjects,
   listTodos,
-  updateNote
+  updateNote,
+  updateProject
 } from '../api'
 import { createPostDraft, openPostEditor, updatePostContent, updatePostTitle } from '../articles'
 import { markdownToHtml } from '../vditor'
@@ -49,6 +50,11 @@ const emit = defineEmits<{
 }>()
 
 const target = takeNotesTarget()
+const targetProjectAccepted = Boolean(target?.project
+  && (cachedProjects ?? []).some((project) =>
+    project.name === target.project && projectStatusOf(project) === 'ACCEPTED'))
+const showFinished = ref(targetProjectAccepted)
+let targetVisibilityApplied = targetProjectAccepted || !target?.project
 const notes = ref<NoteSummary[]>(cachedNotes ?? [])
 const projects = ref<Project[]>(cachedProjects ?? [])
 const todos = ref<Todo[]>(cachedTodos?.items ?? [])
@@ -76,6 +82,8 @@ const pendingDelete = ref<NoteSummary | null>(null)
 const noteTemplates = ref<NoteTemplate[]>(DEFAULT_NOTE_TEMPLATES.map((template) => ({ ...template })))
 const templatesOpen = ref(false)
 const importOpen = ref(false)
+const moreOpen = ref(false)
+const moreMenuRef = ref<HTMLElement | null>(null)
 const exporting = ref(false)
 const { toast, show } = useToast()
 const { menu: contextMenu, open: openContextMenu } = useContextMenu()
@@ -91,6 +99,18 @@ const linkedPosts = computed(() =>
 function projectTitleOf(name: string | null): string {
   if (!name) return ''
   return projects.value.find((project) => project.name === name)?.title ?? ''
+}
+
+function noteModuleOf(note: NoteSummary): string {
+  if (!note.module) return ''
+  const project = note.project
+    ? projects.value.find((item) => item.name === note.project)
+    : undefined
+  return project?.modules.includes(note.module) ? note.module : ''
+}
+
+function linkedTodoNames(note: NoteSummary): string[] {
+  return note.todos.filter((name) => todos.value.some((todo) => todo.name === name))
 }
 
 function todoTitleOf(name: string): string {
@@ -148,6 +168,10 @@ const todoSelectOptions = computed(() => [
 
 const projectStatusMap = computed(() =>
   new Map(projects.value.map((project) => [project.name, projectStatusOf(project)])))
+const acceptedProjectNames = computed(() => new Set(
+  projects.value
+    .filter((project) => projectStatusOf(project) === 'ACCEPTED')
+    .map((project) => project.name)))
 
 const hasFilters = computed(() => keyword.value.trim() !== ''
   || projectFilter.value !== '' || projectStatus.value !== ''
@@ -171,9 +195,10 @@ function matchesFilters(note: NoteSummary): boolean {
     if (status == null || status !== projectStatus.value) return false
   }
   if (moduleFilter.value) {
+    const module = noteModuleOf(note)
     if (moduleFilter.value === '__none__') {
-      if (note.module) return false
-    } else if (note.module !== moduleFilter.value) {
+      if (module) return false
+    } else if (module !== moduleFilter.value) {
       return false
     }
   }
@@ -183,8 +208,17 @@ function matchesFilters(note: NoteSummary): boolean {
   return true
 }
 
+const hiddenNoteCount = computed(() => showFinished.value
+  ? 0
+  : notes.value.filter((note) => note.project
+    && acceptedProjectNames.value.has(note.project) && matchesFilters(note)).length)
+
 const filteredNotes = computed(() =>
-  sortedNotes.value.filter((note) => matchesFilters(note)))
+  sortedNotes.value.filter((note) => {
+    if (!showFinished.value && note.project
+      && acceptedProjectNames.value.has(note.project)) return false
+    return matchesFilters(note)
+  }))
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let searchSeq = 0
@@ -208,6 +242,10 @@ watch(keyword, () => {
   searchTimer = window.setTimeout(() => {
     void searchNotes()
   }, 250)
+})
+
+watch(toolsCollapsed, (collapsed) => {
+  if (collapsed) moreOpen.value = false
 })
 
 watch(projectFilter, () => {
@@ -256,6 +294,11 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
     ])
     notes.value = noteList
     projects.value = projectList
+    if (!targetVisibilityApplied) {
+      targetVisibilityApplied = true
+      showFinished.value = projectList.some((project) =>
+        project.name === target?.project && projectStatusOf(project) === 'ACCEPTED')
+    }
     todos.value = todoList.items
     if (templateResponse?.templates) {
       noteTemplates.value = templateResponse.templates
@@ -310,6 +353,17 @@ function openCreateFromTarget(): void {
   editorOpen.value = true
 }
 
+function sanitizeNote(note: Note): Note {
+  const project = note.project
+    ? projects.value.find((item) => item.name === note.project)
+    : undefined
+  return {
+    ...note,
+    module: note.module && project?.modules.includes(note.module) ? note.module : null,
+    todos: note.todos.filter((name) => todos.value.some((todo) => todo.name === name))
+  }
+}
+
 function openEdit(note: NoteSummary): void {
   if (opening.value) return
   opening.value = true
@@ -317,7 +371,7 @@ function openEdit(note: NoteSummary): void {
     .then((full) => {
       createDefaults.value = {}
       if (full.summary) summarySource.set(full.name, full.content)
-      editing.value = full
+      editing.value = sanitizeNote(full)
       editorOpen.value = true
     })
     .catch(handleError)
@@ -380,10 +434,28 @@ function applyTemplates(templates: NoteTemplate[]): void {
   noteTemplates.value = templates
 }
 
+async function ensureProjectModule(projectName: string | null,
+  moduleName: string | null): Promise<void> {
+  if (!projectName || !moduleName) return
+  const project = projects.value.find((item) => item.name === projectName)
+  if (!project || project.modules.includes(moduleName)) return
+  if (project.modules.length >= 20) {
+    throw new ApiError(400, 'MODULE_LIMIT', '每个项目最多 20 个模块')
+  }
+  const updated = await updateProject(project.name, {
+    title: project.title,
+    modules: [...project.modules, moduleName]
+  })
+  const index = projects.value.findIndex((item) => item.name === updated.name)
+  if (index >= 0) projects.value[index] = updated
+  writeCache('projects', projects.value)
+}
+
 async function persist(payload: NotePayload): Promise<boolean> {
   if (saving.value) return false
   saving.value = true
   try {
+    await ensureProjectModule(payload.project ?? null, payload.module ?? null)
     if (editing.value) {
       const updated = await updateNote(editing.value.name, payload)
       const index = notes.value.findIndex((item) => item.name === updated.name)
@@ -432,9 +504,11 @@ function openLinkedPostFromCard(note: NoteSummary): void {
 }
 
 function jumpToModule(note: NoteSummary): void {
+  const module = noteModuleOf(note)
+  if (!note.project || !module) return
   emit('openTodos', {
-    project: note.project ?? undefined,
-    module: note.module ?? undefined
+    project: note.project,
+    module
   })
 }
 
@@ -685,16 +759,17 @@ function openNoteMenu(event: MouseEvent, note: NoteSummary): void {
     disabled: summaryBusy.value !== null,
     onSelect: () => void generateSummaryFor(note)
   })
+  const linkedTodos = linkedTodoNames(note)
   const hasTargets = Boolean(
-    (note.project && projectTitleOf(note.project)) || note.module || note.todos.length)
+    (note.project && projectTitleOf(note.project)) || noteModuleOf(note) || linkedTodos.length)
   if (hasTargets) items.push({ divider: true, label: '' })
   if (note.project && projectTitleOf(note.project)) {
     items.push({ label: '打开项目', icon: 'folder', onSelect: () => jumpToProject(note) })
   }
-  if (note.module) {
+  if (noteModuleOf(note)) {
     items.push({ label: '查看模块待办', icon: 'filter', onSelect: () => jumpToModule(note) })
   }
-  for (const name of note.todos) {
+  for (const name of linkedTodos) {
     items.push({
       label: `待办 · ${todoTitleOf(name) || '已删除'}`,
       icon: 'checklist',
@@ -722,25 +797,31 @@ function openEmptyMenu(event: MouseEvent): void {
   ])
 }
 
-function closeTodoMenu(event: MouseEvent): void {
+function closeFloatingMenus(event: MouseEvent): void {
   const element = event.target as Element | null
   if (!element?.closest?.('.ws-note-todo-wrap')) todoMenuNote.value = null
+  if (moreOpen.value
+    && !(event.target instanceof Node && moreMenuRef.value?.contains(event.target))) {
+    moreOpen.value = false
+  }
 }
 
 function closeTodoMenuOnEscape(event: KeyboardEvent): void {
-  if (event.key === 'Escape') todoMenuNote.value = null
+  if (event.key !== 'Escape') return
+  todoMenuNote.value = null
+  moreOpen.value = false
 }
 
 onMounted(() => {
   void load({ silent: Boolean(cachedNotes) })
   preloadMermaidScript()
-  document.addEventListener('mousedown', closeTodoMenu)
+  document.addEventListener('mousedown', closeFloatingMenus)
   window.addEventListener('keydown', closeTodoMenuOnEscape)
 })
 
 onUnmounted(() => {
   if (searchTimer) window.clearTimeout(searchTimer)
-  document.removeEventListener('mousedown', closeTodoMenu)
+  document.removeEventListener('mousedown', closeFloatingMenus)
   window.removeEventListener('keydown', closeTodoMenuOnEscape)
 })
 </script>
@@ -852,18 +933,91 @@ onUnmounted(() => {
             />
           </svg>
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="rounded-full"
+          :class="showFinished ? 'bg-[#007AFF]/[0.12] text-[#007AFF] dark:bg-[#0A84FF]/[0.20] dark:text-[#64B5FF]' : ''"
+          :aria-label="showFinished ? '隐藏已验收项目的笔记' : '显示已验收项目的笔记'"
+          :title="showFinished ? '隐藏已验收项目的笔记' : '显示已验收项目的笔记'"
+          :aria-pressed="showFinished"
+          @click="showFinished = !showFinished"
+        >
+          <svg v-if="showFinished" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+            <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+          </svg>
+          <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+              stroke="currentColor"
+              stroke-width="1.3"
+            />
+            <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+            <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+          </svg>
+        </Button>
       </template>
-      <Button
-        variant="ghost"
-        class="ml-auto"
-        title="从 Halo 文章导入"
-        @click="importOpen = true"
-      >导入文章</Button>
-      <Button
-        variant="ghost"
-        title="管理笔记模板"
-        @click="templatesOpen = true"
-      >模板</Button>
+      <div ref="moreMenuRef" class="relative ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="ws-notes-more-toggle rounded-full"
+          :aria-expanded="moreOpen"
+          aria-haspopup="menu"
+          aria-label="更多操作"
+          title="更多操作"
+          @click="moreOpen = !moreOpen"
+        >
+          <span
+            class="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200"
+            :class="moreOpen ? 'bg-[#007AFF]/[0.12] text-[#007AFF] dark:bg-[#0A84FF]/[0.20] dark:text-[#64B5FF]' : ''"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="3.2" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="12.8" cy="8" r="1.2" fill="currentColor" />
+            </svg>
+          </span>
+        </Button>
+        <div
+          v-if="moreOpen"
+          class="ws-notes-more-menu absolute right-0 top-full z-40 mt-1 w-[168px] overflow-hidden rounded-xl border border-black/[0.08] bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
+          role="menu"
+          aria-label="更多操作"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            class="ws-import-post flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+            title="从 Halo 文章导入"
+            @click="moreOpen = false; importOpen = true"
+          >
+            <svg class="h-4 w-4 shrink-0 text-[#6e6e73] dark:text-[#98989d]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 2.5v6M5.5 6.5L8 9l2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M3.5 11.5h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+            导入文章
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            class="ws-manage-templates flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
+            title="管理笔记模板"
+            @click="moreOpen = false; templatesOpen = true"
+          >
+            <svg class="h-4 w-4 shrink-0 text-[#6e6e73] dark:text-[#98989d]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="3.5" y="2.5" width="9" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" />
+              <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+            </svg>
+            模板
+          </button>
+        </div>
+      </div>
       <Button variant="primary" @click="openCreate">
         <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -896,12 +1050,17 @@ onUnmounted(() => {
       @contextmenu.prevent.stop="openEmptyMenu($event)"
     >
       <p class="ws-state-title text-[15px] font-semibold">
-        {{ notes.length ? '没有匹配的笔记' : '还没有笔记' }}
+        {{ notes.length ? (hiddenNoteCount ? '已验收项目的笔记已隐藏' : '没有匹配的笔记') : '还没有笔记' }}
       </p>
       <p class="ws-muted text-[13px] text-[#6e6e73] dark:text-[#98989d]">
-        {{ notes.length ? '调整筛选条件试试' : '用 Markdown 记录排查过程、方案和零散想法' }}
+        {{ notes.length
+          ? (hiddenNoteCount ? `已验收项目下有 ${hiddenNoteCount} 篇笔记` : '调整筛选条件试试')
+          : '用 Markdown 记录排查过程、方案和零散想法' }}
       </p>
-      <Button v-if="hasFilters" class="mt-2" @click="clearFilters">清除筛选</Button>
+      <Button v-if="hiddenNoteCount" class="mt-2" @click="showFinished = true">
+        显示已验收项目笔记
+      </Button>
+      <Button v-else-if="hasFilters" class="mt-2" @click="clearFilters">清除筛选</Button>
       <Button v-else-if="!notes.length" class="mt-2" variant="primary" @click="openCreate">
         新建笔记
       </Button>
@@ -956,7 +1115,7 @@ onUnmounted(() => {
         </p>
 
         <div
-          v-if="note.project || note.module || note.todos.length || note.post"
+          v-if="note.project || noteModuleOf(note) || linkedTodoNames(note).length || note.post"
           class="mt-3 flex flex-wrap items-center gap-1.5"
         >
           <button
@@ -980,20 +1139,20 @@ onUnmounted(() => {
             关联文章
           </button>
           <button
-            v-if="note.module"
+            v-if="noteModuleOf(note)"
             type="button"
             class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/60 transition-colors duration-150 hover:bg-black/[0.1] dark:bg-white/[0.08] dark:text-[#f5f5f7]/60 dark:hover:bg-white/[0.14]"
             title="查看该模块的待办"
             @click.stop="jumpToModule(note)"
-          >模块 · {{ note.module }}</button>
-          <div v-if="note.todos.length" class="ws-note-todo-wrap relative">
+          >模块 · {{ noteModuleOf(note) }}</button>
+          <div v-if="linkedTodoNames(note).length" class="ws-note-todo-wrap relative">
             <button
               type="button"
               class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/60 transition-colors duration-150 hover:bg-black/[0.1] dark:bg-white/[0.08] dark:text-[#f5f5f7]/60 dark:hover:bg-white/[0.14]"
-              :title="note.todos.length > 1 ? '选择关联待办' : '跳转到待办'"
-              :aria-haspopup="note.todos.length > 1 ? 'menu' : undefined"
-              @click.stop="note.todos.length === 1 ? jumpToTodo(note, note.todos[0]) : toggleTodoMenu(note.name)"
-            >待办 · {{ note.todos.length }}</button>
+              :title="linkedTodoNames(note).length > 1 ? '选择关联待办' : '跳转到待办'"
+              :aria-haspopup="linkedTodoNames(note).length > 1 ? 'menu' : undefined"
+              @click.stop="linkedTodoNames(note).length === 1 ? jumpToTodo(note, linkedTodoNames(note)[0]) : toggleTodoMenu(note.name)"
+            >待办 · {{ linkedTodoNames(note).length }}</button>
             <div
               v-if="todoMenuNote === note.name"
               class="ws-note-todo-menu absolute bottom-full left-0 z-30 mb-1 max-h-56 min-w-[180px] max-w-[280px] overflow-y-auto rounded-xl border border-black/[0.08] bg-white py-1 shadow-[0_12px_32px_rgba(0,0,0,0.18)] dark:border-white/[0.12] dark:bg-[#2c2c2e]"
@@ -1001,13 +1160,13 @@ onUnmounted(() => {
               aria-label="关联待办"
             >
               <button
-                v-for="name in note.todos"
+                v-for="name in linkedTodoNames(note)"
                 :key="name"
                 type="button"
                 role="menuitem"
                 class="block w-full truncate px-3 py-2 text-left text-[12px] text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.04] dark:text-[#f5f5f7] dark:hover:bg-white/[0.06]"
                 @click.stop="jumpToTodo(note, name)"
-              >{{ todoTitleOf(name) || '待办已删除' }}</button>
+              >{{ todoTitleOf(name) }}</button>
             </div>
           </div>
         </div>

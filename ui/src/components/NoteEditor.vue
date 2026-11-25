@@ -3,7 +3,7 @@ import type Vditor from 'vditor'
 import 'vditor/dist/index.css'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type { Note, NotePayload, NoteTemplate, Project, Todo } from '../types'
-import { messageOf } from '../utils'
+import { copyText, messageOf } from '../utils'
 import { uploadImage } from '../api'
 import { openPostEditor } from '../articles'
 import { applyMermaidTheme } from '../mermaidTheme'
@@ -38,18 +38,22 @@ const emit = defineEmits<{
 const title = ref(props.note?.title ?? '')
 const content = ref(props.note?.content ?? '')
 const project = ref(props.note?.project ?? props.defaultProject ?? '')
+const projectModulesOf = (projectName: string) =>
+  props.projects.find((item) => item.name === projectName)?.modules ?? []
+const initialModule = props.note
+  ? props.note.module ?? ''
+  : props.defaultProject
+    ? props.defaultModule ?? ''
+    : ''
 const module = ref(
-  props.note
-    ? props.note.module ?? ''
-    : props.defaultProject
-      ? props.defaultModule ?? ''
-      : ''
+  initialModule && projectModulesOf(project.value).includes(initialModule) ? initialModule : ''
 )
 const selectedTodos = ref<Set<string>>(
   new Set(props.note?.todos ?? (props.defaultTodo ? [props.defaultTodo] : []))
 )
 
 const editorEl = ref<HTMLDivElement>()
+const hostEl = ref<HTMLDivElement>()
 const vditor = shallowRef<Vditor>()
 const propsOpen = ref(false)
 const confirmDiscard = ref(false)
@@ -57,6 +61,20 @@ const localError = ref('')
 const uploading = ref(0)
 const ready = ref(false)
 const { menu: articleMenu, open: openArticleMenu } = useContextMenu()
+const { menu: editorMenu, open: openEditorMenu } = useContextMenu()
+const { menu: blockMenu, open: openBlockMenu } = useContextMenu()
+
+// 块左侧的「+ / 拖拽柄」：悬停显示，+ 插块，拖拽或菜单调整顺序
+const GUTTER_WIDTH = 48
+const gutterBlock = shallowRef<HTMLElement | null>(null)
+const gutterPos = ref({ left: 0, top: 0 })
+const dropLine = ref<{ top: number; left: number; width: number } | null>(null)
+let draggingBlock: HTMLElement | null = null
+let dropTarget: { block: HTMLElement; after: boolean } | null = null
+let gutterTimer: number | undefined
+let dragStart: { x: number; y: number } | null = null
+let dragActive = false
+let suppressHandleClick = false
 
 // 大纲折叠偏好跨次打开保留；默认收起成右侧细轨，鼠标悬停/点击展开
 const OUTLINE_KEY = 'personal-workspace:outline-hidden-v2'
@@ -297,6 +315,333 @@ function useTemplate(template: string): void {
   vditor.value?.focus()
   scheduleInlineHtml()
   scheduleOutline()
+}
+
+function runToolbarAction(name: string): void {
+  vditor.value?.focus()
+  vditor.value?.vditor.toolbar?.elements?.[name]
+    ?.querySelector<HTMLElement>('button')?.click()
+}
+
+function editorReset(): HTMLElement | null {
+  return editorEl.value?.querySelector<HTMLElement>('.vditor-ir .vditor-reset') ?? null
+}
+
+function topBlockOf(node: Node | null): HTMLElement | null {
+  const reset = editorReset()
+  if (!reset || !node) return null
+  let element: Element | null = node instanceof Element ? node : node.parentElement
+  while (element && element.parentElement !== reset) element = element.parentElement
+  return element instanceof HTMLElement && element.parentElement === reset ? element : null
+}
+
+function positionGutter(block: HTMLElement): void {
+  const host = hostEl.value
+  if (!host) return
+  const hostRect = host.getBoundingClientRect()
+  const rect = block.getBoundingClientRect()
+  if (rect.bottom < hostRect.top + 2 || rect.top > hostRect.bottom - 2) {
+    gutterBlock.value = null
+    return
+  }
+  // 标题左侧还有 Vditor 自绘的 H1/H2 标记（负 margin），手柄要让开它
+  const headingMarker = /^H[1-6]$/.test(block.tagName) ? 32 : 0
+  const left = rect.left - hostRect.left - GUTTER_WIDTH - 6 - headingMarker
+  if (left < 4) {
+    gutterBlock.value = null
+    return
+  }
+  gutterPos.value = {
+    left,
+    top: Math.max(2, rect.top - hostRect.top + 2)
+  }
+}
+
+function cancelGutterHide(): void {
+  window.clearTimeout(gutterTimer)
+}
+
+function scheduleGutterHide(): void {
+  cancelGutterHide()
+  gutterTimer = window.setTimeout(() => {
+    if (!draggingBlock) gutterBlock.value = null
+  }, 220)
+}
+
+function hideGutterNow(): void {
+  cancelGutterHide()
+  gutterBlock.value = null
+}
+
+function onEditorMouseMove(event: MouseEvent): void {
+  if (draggingBlock) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest?.('.ws-block-gutter')) {
+    cancelGutterHide()
+    return
+  }
+  const block = topBlockOf(target)
+  if (!block) {
+    scheduleGutterHide()
+    return
+  }
+  cancelGutterHide()
+  gutterBlock.value = block
+  positionGutter(block)
+}
+
+function setBlockCaret(block: HTMLElement, edge: 'start' | 'end'): void {
+  vditor.value?.focus()
+  const range = document.createRange()
+  range.selectNodeContents(block)
+  range.collapse(edge === 'start')
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+function caretRangeAt(event: MouseEvent): Range | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+  }
+  if (doc.caretRangeFromPoint) return doc.caretRangeFromPoint(event.clientX, event.clientY)
+  const position = doc.caretPositionFromPoint?.(event.clientX, event.clientY)
+  if (!position) return null
+  const range = document.createRange()
+  range.setStart(position.offsetNode, position.offset)
+  range.collapse(true)
+  return range
+}
+
+// 直接移动/删除块后，借 Vditor 自己的 preventInput 通道同步 markdown、撤销栈与自动保存
+function syncDomChange(): void {
+  const internal = vditor.value?.vditor
+  if (!internal?.ir) return
+  internal.ir.preventInput = true
+  internal.ir.element.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    inputType: 'insertReorderedContent'
+  }))
+}
+
+type InsertKind = 'paragraph' | 'heading' | 'list' | 'check' | 'quote' | 'code' | 'table' | 'line'
+
+function insertBlock(block: HTMLElement, kind: InsertKind): void {
+  hideGutterNow()
+  setBlockCaret(block, 'end')
+  runToolbarAction('insert-after')
+  if (kind === 'paragraph') return
+  if (kind === 'heading') {
+    vditor.value?.vditor.toolbar?.elements?.headings
+      ?.querySelector<HTMLElement>('[data-tag="h2"]')?.click()
+    return
+  }
+  runToolbarAction(kind)
+}
+
+function insertAtBlock(block: HTMLElement, before: boolean): void {
+  hideGutterNow()
+  setBlockCaret(block, before ? 'start' : 'end')
+  runToolbarAction(before ? 'insert-before' : 'insert-after')
+}
+
+function moveBlock(block: HTMLElement, direction: -1 | 1): void {
+  const sibling = direction < 0 ? block.previousElementSibling : block.nextElementSibling
+  if (!(sibling instanceof HTMLElement)) return
+  if (direction < 0) sibling.before(block)
+  else sibling.after(block)
+  syncDomChange()
+  hideGutterNow()
+}
+
+function deleteBlock(block: HTMLElement): void {
+  const reset = editorReset()
+  if (!reset) return
+  const following = block.nextElementSibling instanceof HTMLElement ? block.nextElementSibling : null
+  const preceding = block.previousElementSibling instanceof HTMLElement ? block.previousElementSibling : null
+  block.remove()
+  if (!reset.children.length) reset.insertAdjacentHTML('beforeend', '<p data-block="0"><br></p>')
+  syncDomChange()
+  if (following) setBlockCaret(following, 'start')
+  else if (preceding) setBlockCaret(preceding, 'end')
+  hideGutterNow()
+}
+
+async function copyBlock(block: HTMLElement): Promise<void> {
+  const markdown = vditor.value?.vditor.lute.VditorIRDOM2Md(block.outerHTML).trim()
+  if (markdown && await copyText(markdown)) vditor.value?.tip('已复制块 Markdown')
+  hideGutterNow()
+}
+
+function anchorAt(event: MouseEvent): MouseEvent {
+  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect()
+  if (!rect) return event
+  return new MouseEvent('click', {
+    clientX: rect.right + 6,
+    clientY: rect.bottom + 4,
+    bubbles: true,
+    cancelable: true
+  })
+}
+
+function onPlusClick(event: MouseEvent): void {
+  const block = gutterBlock.value
+  if (!block) return
+  hideGutterNow()
+  openBlockMenu(anchorAt(event), [
+    { label: '段落', icon: 'text', onSelect: () => insertBlock(block, 'paragraph') },
+    { label: '二级标题', icon: 'title', onSelect: () => insertBlock(block, 'heading') },
+    { label: '无序列表', icon: 'list', onSelect: () => insertBlock(block, 'list') },
+    { label: '任务列表', icon: 'check', onSelect: () => insertBlock(block, 'check') },
+    { label: '引用', icon: 'quote', onSelect: () => insertBlock(block, 'quote') },
+    { label: '代码块', icon: 'code', onSelect: () => insertBlock(block, 'code') },
+    { label: '表格', icon: 'table', onSelect: () => insertBlock(block, 'table') },
+    { label: '分隔线', icon: 'dismiss', onSelect: () => insertBlock(block, 'line') }
+  ])
+}
+
+function onHandleClick(event: MouseEvent): void {
+  const block = gutterBlock.value
+  if (!block || draggingBlock || suppressHandleClick) {
+    suppressHandleClick = false
+    return
+  }
+  hideGutterNow()
+  openBlockMenu(anchorAt(event), [
+    { label: '上方插入段落', icon: 'top', onSelect: () => insertAtBlock(block, true) },
+    { label: '下方插入段落', icon: 'plus', onSelect: () => insertAtBlock(block, false) },
+    { divider: true, label: '' },
+    { label: '复制块', icon: 'copy', onSelect: () => void copyBlock(block) },
+    {
+      label: '上移',
+      icon: 'top',
+      disabled: !block.previousElementSibling,
+      onSelect: () => moveBlock(block, -1)
+    },
+    {
+      label: '下移',
+      icon: 'move',
+      disabled: !block.nextElementSibling,
+      onSelect: () => moveBlock(block, 1)
+    },
+    { divider: true, label: '' },
+    { label: '删除块', icon: 'trash', danger: true, onSelect: () => deleteBlock(block) }
+  ])
+}
+
+function updateDropTarget(target: HTMLElement, clientY: number): void {
+  const host = hostEl.value
+  if (!host) return
+  const rect = target.getBoundingClientRect()
+  const after = clientY > rect.top + rect.height / 2
+  dropTarget = { block: target, after }
+  const hostRect = host.getBoundingClientRect()
+  dropLine.value = {
+    top: (after ? rect.bottom : rect.top) - hostRect.top,
+    left: rect.left - hostRect.left,
+    width: rect.width
+  }
+}
+
+function onHandleMouseDown(event: MouseEvent): void {
+  if (event.button !== 0) return
+  const block = gutterBlock.value
+  if (!block) return
+  event.preventDefault()
+  dragStart = { x: event.clientX, y: event.clientY }
+  dragActive = false
+  draggingBlock = block
+  window.addEventListener('mousemove', onDragMouseMove)
+  window.addEventListener('mouseup', onDragMouseUp)
+}
+
+function onDragMouseMove(event: MouseEvent): void {
+  if (!draggingBlock || !dragStart) return
+  if (!dragActive) {
+    if (Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y) < 4) return
+    dragActive = true
+    draggingBlock.classList.add('ws-block-dragging')
+    hideGutterNow()
+  }
+  const target = topBlockOf(document.elementFromPoint(event.clientX, event.clientY))
+  if (!target) {
+    dropLine.value = null
+    dropTarget = null
+    return
+  }
+  updateDropTarget(target, event.clientY)
+}
+
+function onDragMouseUp(): void {
+  window.removeEventListener('mousemove', onDragMouseMove)
+  window.removeEventListener('mouseup', onDragMouseUp)
+  const source = draggingBlock
+  const target = dropTarget
+  const moved = dragActive
+  dragStart = null
+  dragActive = false
+  if (moved && source && target && target.block !== source) {
+    const noop = (target.after && target.block.nextElementSibling === source)
+      || (!target.after && target.block.previousElementSibling === source)
+    if (!noop) {
+      if (target.after) target.block.after(source)
+      else target.block.before(source)
+      syncDomChange()
+    }
+  }
+  cleanupDrag()
+  if (moved) {
+    suppressHandleClick = true
+    window.setTimeout(() => { suppressHandleClick = false }, 0)
+    hideGutterNow()
+  }
+}
+
+function cleanupDrag(): void {
+  draggingBlock?.classList.remove('ws-block-dragging')
+  draggingBlock = null
+  dropTarget = null
+  dropLine.value = null
+}
+
+function onEditorScroll(): void {
+  if (gutterBlock.value) positionGutter(gutterBlock.value)
+}
+
+function onEditorContextMenu(event: MouseEvent): void {
+  const reset = editorReset()
+  if (!reset || !(event.target instanceof Node) || !reset.contains(event.target)) return
+  // 没有选区时把光标落到右键位置，保证菜单里的格式与插入动作有明确作用点
+  const selection = window.getSelection()
+  if (selection && (selection.rangeCount === 0 || selection.isCollapsed)) {
+    const range = caretRangeAt(event)
+    if (range && reset.contains(range.startContainer)) {
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
+  }
+  hideGutterNow()
+  openEditorMenu(event, [
+    { label: '粗体', icon: 'bold', onSelect: () => runToolbarAction('bold') },
+    { label: '斜体', icon: 'italic', onSelect: () => runToolbarAction('italic') },
+    { label: '删除线', icon: 'strike', onSelect: () => runToolbarAction('strike') },
+    { label: '行内代码', icon: 'code', onSelect: () => runToolbarAction('inline-code') },
+    { label: '链接', icon: 'link', onSelect: () => runToolbarAction('link') },
+    { divider: true, label: '' },
+    { label: '引用', icon: 'quote', onSelect: () => runToolbarAction('quote') },
+    { label: '无序列表', icon: 'list', onSelect: () => runToolbarAction('list') },
+    { label: '有序列表', icon: 'ordered-list', onSelect: () => runToolbarAction('ordered-list') },
+    { label: '任务列表', icon: 'check', onSelect: () => runToolbarAction('check') },
+    { label: '代码块', icon: 'code', onSelect: () => runToolbarAction('code') },
+    { label: '表格', icon: 'table', onSelect: () => runToolbarAction('table') },
+    { divider: true, label: '' },
+    { label: '上方插入段落', icon: 'top', onSelect: () => runToolbarAction('insert-before') },
+    { label: '下方插入段落', icon: 'plus', onSelect: () => runToolbarAction('insert-after') },
+    { divider: true, label: '' },
+    { label: '撤销', icon: 'restore', onSelect: () => runToolbarAction('undo') },
+    { label: '重做', icon: 'redo', onSelect: () => runToolbarAction('redo') }
+  ])
 }
 
 async function handleUpload(files: File[]): Promise<string | null> {
@@ -593,7 +938,31 @@ onMounted(async () => {
     icon: 'ant',
     theme: dark ? 'dark' : 'classic',
     cache: { enable: false },
-    toolbar: [],
+    toolbar: [
+      'headings',
+      'bold',
+      'italic',
+      'strike',
+      'link',
+      'upload',
+      '|',
+      'list',
+      'ordered-list',
+      'check',
+      'quote',
+      '|',
+      'inline-code',
+      'code',
+      'line',
+      'table',
+      '|',
+      'undo',
+      'redo',
+      // 仅由块手柄/右键调用，界面上通过 CSS 隐藏
+      'insert-before',
+      'insert-after'
+    ],
+    toolbarConfig: { hide: false, pin: false },
     outline: { enable: true, position: 'right' },
     preview: {
       maxWidth: 800,
@@ -628,6 +997,8 @@ onMounted(async () => {
 
   window.addEventListener('keydown', onWindowKeydown, true)
   editorEl.value?.addEventListener('paste', onEditorPaste, true)
+  editorEl.value?.addEventListener('contextmenu', onEditorContextMenu)
+  editorEl.value?.addEventListener('scroll', onEditorScroll, true)
   const root = document.getElementById('workspace-app')
   if (root) {
     themeObserver = new MutationObserver(applyTheme)
@@ -650,8 +1021,13 @@ onBeforeUnmount(() => {
   window.clearTimeout(outlineTimer)
   window.clearTimeout(flyoutTimer)
   window.clearTimeout(inlineHtmlTimer)
+  window.clearTimeout(gutterTimer)
   window.removeEventListener('keydown', onWindowKeydown, true)
   editorEl.value?.removeEventListener('paste', onEditorPaste, true)
+  editorEl.value?.removeEventListener('contextmenu', onEditorContextMenu)
+  editorEl.value?.removeEventListener('scroll', onEditorScroll, true)
+  window.removeEventListener('mousemove', onDragMouseMove)
+  window.removeEventListener('mouseup', onDragMouseUp)
   themeObserver?.disconnect()
   vditor.value?.destroy()
   vditor.value = undefined
@@ -789,8 +1165,56 @@ onBeforeUnmount(() => {
       >{{ templates.length ? '管理' : '新建模板' }}</Button>
     </div>
 
-    <div class="relative min-h-0 flex-1">
+    <div
+      ref="hostEl"
+      class="relative min-h-0 flex-1"
+      @mousemove="onEditorMouseMove"
+      @mouseleave="scheduleGutterHide"
+    >
       <div ref="editorEl" class="h-full"></div>
+
+      <div
+        v-if="gutterBlock"
+        class="ws-block-gutter"
+        :style="{ left: `${gutterPos.left}px`, top: `${gutterPos.top}px`, width: `${GUTTER_WIDTH}px` }"
+        @mouseenter="cancelGutterHide"
+      >
+        <button
+          type="button"
+          class="ws-block-gutter__btn"
+          title="在下方插入内容"
+          aria-label="在下方插入内容"
+          @mousedown.prevent
+          @click="onPlusClick"
+        >
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="ws-block-gutter__btn ws-block-gutter__handle"
+          title="拖动排序 / 块操作"
+          aria-label="块操作"
+          @mousedown="onHandleMouseDown"
+          @click="onHandleClick"
+        >
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <circle cx="5.5" cy="4" r="1.1" />
+            <circle cx="10.5" cy="4" r="1.1" />
+            <circle cx="5.5" cy="8" r="1.1" />
+            <circle cx="10.5" cy="8" r="1.1" />
+            <circle cx="5.5" cy="12" r="1.1" />
+            <circle cx="10.5" cy="12" r="1.1" />
+          </svg>
+        </button>
+      </div>
+
+      <div
+        v-if="dropLine"
+        class="ws-block-drop-line"
+        :style="{ top: `${dropLine.top}px`, left: `${dropLine.left}px`, width: `${dropLine.width}px` }"
+      ></div>
 
       <template v-if="outlineAvailable">
         <button
@@ -869,5 +1293,21 @@ onBeforeUnmount(() => {
     :y="articleMenu.y"
     :items="articleMenu.items"
     @close="articleMenu.open = false"
+  />
+
+  <ContextMenu
+    v-if="editorMenu.open"
+    :x="editorMenu.x"
+    :y="editorMenu.y"
+    :items="editorMenu.items"
+    @close="editorMenu.open = false"
+  />
+
+  <ContextMenu
+    v-if="blockMenu.open"
+    :x="blockMenu.x"
+    :y="blockMenu.y"
+    :items="blockMenu.items"
+    @close="blockMenu.open = false"
   />
 </template>

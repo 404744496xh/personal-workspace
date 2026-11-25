@@ -31,11 +31,14 @@ export function takeNotesTarget(): NotesTarget | null {
   return value
 }
 
+export type DueFilter = 'overdue' | 'today' | 'soon'
+
 export interface TodosTarget {
   project?: string
   module?: string
   status?: 'ALL' | 'OPEN' | 'DISMISSED'
-  stale?: boolean
+  urgent?: boolean
+  due?: DueFilter
   todo?: string
   create?: boolean
   createdAt?: string

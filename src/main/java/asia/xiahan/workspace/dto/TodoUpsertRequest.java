@@ -16,6 +16,7 @@ public record TodoUpsertRequest(
     Boolean completed,
     Boolean dismissed,
     Boolean pinned,
+    @Pattern(regexp = "NONE|DAILY|WEEKLY|MONTHLY") String recurrence,
     @Size(max = 40) String createdAt,
     @Size(max = 64) String owner
 ) {

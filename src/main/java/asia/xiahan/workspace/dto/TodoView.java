@@ -17,6 +17,7 @@ public record TodoView(
     boolean dismissed,
     String dismissedAt,
     boolean pinned,
+    String recurrence,
     String createdAt
 ) {
 
@@ -41,6 +42,7 @@ public record TodoView(
             spec.isDismissed(),
             spec.getDismissedAt(),
             spec.isPinned(),
+            spec.getRecurrence() == null ? "NONE" : spec.getRecurrence(),
             created
         );
     }

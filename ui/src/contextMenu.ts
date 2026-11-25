@@ -6,6 +6,7 @@ export type ContextMenuIcon =
   | 'folder' | 'module' | 'open' | 'calendar' | 'checklist' | 'home' | 'refresh'
   | 'top' | 'search' | 'link' | 'sun' | 'moon' | 'text' | 'close' | 'paste'
   | 'archive' | 'clock' | 'redo' | 'cut' | 'select' | 'pin' | 'download' | 'sparkle'
+  | 'bold' | 'italic' | 'strike' | 'code' | 'quote' | 'table' | 'list' | 'ordered-list'
 
 export interface ContextMenuItem {
   label: string

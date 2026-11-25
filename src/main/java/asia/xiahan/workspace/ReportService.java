@@ -35,8 +35,10 @@ public class ReportService {
     private static final int MAX_PROJECT_LINKS = 6;
     private static final int MAX_PROJECT_NOTES = 5;
     private static final int MAX_OPEN_ITEMS = 12;
+    // 历史结构化回顾已下线，但仍要从 AI 报告素材中排除
     private static final Pattern REPORT_TITLE = Pattern.compile(
-        "^(?:\\d{4} 年 \\d{1,2} 月工作月报|\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2} 工作周报)$");
+        "^(?:\\d{4} 年 \\d{1,2} 月工作月报|\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2} 工作周报"
+            + "|\\d{4} 年 \\d{1,2} 月工作回顾|\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2} 工作回顾)$");
 
     private static final String SETTINGS_CONFIG_MAP = "personal-workspace-config";
     private static final JsonMapper JSON_MAPPER = JsonMapper.builder().build();
@@ -99,7 +101,6 @@ public class ReportService {
         if (ChronoUnit.DAYS.between(start, end) > MAX_PERIOD_DAYS) {
             throw ApiException.badRequest("统计周期不能超过一年");
         }
-        var title = titleOf(view, start, end);
         return Mono.zip(
                 dataAccess.listAllTodos(owner).collectList(),
                 dataAccess.listProjects(owner).collectList(),
@@ -108,9 +109,9 @@ public class ReportService {
                 var prompt = buildPrompt(view, start, end,
                     tuple.getT1(), tuple.getT2(), tuple.getT3());
                 return reportTemplate()
-                    .flatMap(template -> ai.chat(systemPrompt(template), prompt));
-            })
-            .map(raw -> new ReportResponse(title, compose(raw)));
+                    .flatMap(template -> ai.chat(systemPrompt(template), prompt))
+                    .map(raw -> new ReportResponse(titleOf(view, start, end), compose(raw)));
+            });
     }
 
     private Mono<String> reportTemplate() {

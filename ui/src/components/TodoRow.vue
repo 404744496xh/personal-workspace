@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { Todo } from '../types'
 import type { ProjectStatus } from '../projectStatus'
 import { projectStatusMeta } from '../projectStatus'
+import { recurrenceLabel } from '../recurrence'
 import { formatDateTime, priorityClass, priorityLabel, todayString } from '../utils'
 import Button from './ui/Button.vue'
 
@@ -19,6 +20,7 @@ const props = defineProps<{
 }>()
 
 const statusMeta = computed(() => (props.projectStatus ? projectStatusMeta(props.projectStatus) : null))
+const repeatLabel = computed(() => recurrenceLabel(props.todo.recurrence))
 
 const emit = defineEmits<{
   select: []
@@ -36,6 +38,11 @@ const emit = defineEmits<{
 function isOverdue(): boolean {
   return Boolean(props.todo.dueDate && !props.todo.completed && !props.todo.dismissed
     && props.todo.dueDate < todayString())
+}
+
+function isDueToday(): boolean {
+  return Boolean(props.todo.dueDate && !props.todo.completed && !props.todo.dismissed
+    && props.todo.dueDate === todayString())
 }
 </script>
 
@@ -83,9 +90,11 @@ function isOverdue(): boolean {
       <div class="ws-todo-top flex items-center gap-2">
         <h4
           class="min-w-0 flex-1 truncate text-[14px]"
-          :class="todo.completed || todo.dismissed
+          :class="todo.completed
             ? 'text-[#1d1d1f]/45 dark:text-[#f5f5f7]/40'
-            : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
+            : todo.dismissed
+              ? 'text-[#1d1d1f]/60 dark:text-[#f5f5f7]/55'
+              : 'text-[#1d1d1f] dark:text-[#f5f5f7]'"
         >{{ todo.title }}</h4>
         <span
           v-if="todo.pinned"
@@ -99,8 +108,21 @@ function isOverdue(): boolean {
         </span>
         <span
           v-if="todo.dismissed"
-          class="ws-dismissed-tag shrink-0 text-[11px] text-[#8e8e93] dark:text-[#98989d]"
-        >不用处理</span>
+          class="ws-dismissed-icon inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] bg-black/[0.05] text-[#8e8e93] dark:bg-white/[0.08] dark:text-[#98989d]"
+          title="不用处理"
+          aria-label="不用处理"
+          role="img"
+        >
+          <svg class="h-3 w-3" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path
+              d="M2.5 4h11v2.2h-11zM3.7 6.2V13h8.6V6.2M6.3 9h3.4"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
         <span
           class="ws-prio inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] text-[11px] font-medium leading-none tabular-nums"
           :class="priorityClass(todo.priority)"
@@ -133,8 +155,20 @@ function isOverdue(): boolean {
         <span
           v-if="todo.dueDate"
           class="ws-due"
-          :class="isOverdue() ? 'text-[#FF3B30]' : ''"
+          :class="isOverdue() ? 'text-[#FF3B30]' : isDueToday() ? 'text-[#FF9500]' : ''"
+          :title="isOverdue() ? '已逾期' : isDueToday() ? '今天到期' : '截止日期'"
         >{{ todo.dueDate }}</span>
+        <span
+          v-if="repeatLabel && repeatLabel !== '不重复'"
+          class="ws-repeat inline-flex items-center gap-1"
+          :title="`重复规则：${repeatLabel}`"
+        >
+          <svg class="h-3 w-3" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M12.5 5.5A5 5 0 003.5 8M3.5 10.5a5 5 0 009 .5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+            <path d="M12.5 2.8v2.7h-2.7M3.5 13.2v-2.7h2.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          {{ repeatLabel }}
+        </span>
         <span v-if="todo.completedAt" class="ws-completed-at">
           完成于 {{ formatDateTime(todo.completedAt) }}
         </span>

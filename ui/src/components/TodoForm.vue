@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { Priority, Project, Todo, TodoPayload } from '../types'
+import type { Priority, Project, Recurrence, Todo, TodoPayload } from '../types'
 import { projectStatusMeta, projectStatusOf } from '../projectStatus'
+import { RECURRENCE_OPTIONS } from '../recurrence'
 import { formatDateTime } from '../utils'
 import { localDateTimeToIso, toDateTimeLocal } from '../datetime'
 import Button from './ui/Button.vue'
@@ -27,8 +28,13 @@ const title = ref(props.todo?.title ?? '')
 const detail = ref(props.todo?.detail ?? '')
 const priority = ref<Priority>(props.todo?.priority ?? 'MEDIUM')
 const project = ref(props.todo?.project ?? props.defaultProject ?? '')
-const module = ref(props.todo?.module ?? props.defaultModule ?? '')
+const projectModulesOf = (projectName: string) =>
+  props.projects.find((item) => item.name === projectName)?.modules ?? []
+const initialModule = props.todo?.module ?? props.defaultModule ?? ''
+const module = ref(
+  initialModule && projectModulesOf(project.value).includes(initialModule) ? initialModule : '')
 const dueDate = ref(props.todo?.dueDate ?? '')
+const recurrence = ref<Recurrence>(props.todo?.recurrence ?? 'NONE')
 const reporter = ref(props.todo?.reporter ?? '')
 const createdAt = ref(toDateTimeLocal(props.todo?.createdAt ?? props.presetCreatedAt)
   || toDateTimeLocal(new Date().toISOString()))
@@ -58,6 +64,10 @@ watch(project, () => {
   if (module.value && !projectModules.value.includes(module.value)) {
     module.value = ''
   }
+})
+
+watch(dueDate, (value) => {
+  if (!value) recurrence.value = 'NONE'
 })
 
 function onKeydown(event: KeyboardEvent): void {
@@ -99,6 +109,7 @@ function submit(): void {
     reporter: reporter.value.trim() || null,
     dueDate: dueDate.value || null,
     completed: completed.value,
+    recurrence: recurrence.value,
     createdAt: createdAtIso
   })
 }
@@ -192,6 +203,31 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               type="date"
             />
           </label>
+        </div>
+
+        <div class="ws-field flex min-w-0 flex-col gap-1.5">
+          <span class="text-[12px] font-medium text-[#6e6e73] dark:text-[#98989d]">重复</span>
+          <div
+            class="inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-xl bg-black/[0.04] p-0.5 dark:bg-white/[0.06]"
+            role="group"
+            aria-label="重复规则"
+          >
+            <button
+              v-for="option in RECURRENCE_OPTIONS"
+              :key="option.value"
+              type="button"
+              class="min-h-9 rounded-[10px] px-3 text-[12px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[#007AFF]/25 disabled:cursor-not-allowed disabled:opacity-35"
+              :class="recurrence === option.value
+                ? 'bg-white text-[#1d1d1f] shadow-[0_1px_2px_rgba(0,0,0,0.08)] dark:bg-white/[0.14] dark:text-[#f5f5f7]'
+                : 'text-[#6e6e73] hover:text-[#1d1d1f] dark:text-[#98989d] dark:hover:text-[#f5f5f7]'"
+              :disabled="!dueDate && option.value !== 'NONE'"
+              :aria-pressed="recurrence === option.value"
+              @click="recurrence = option.value"
+            >{{ option.label }}</button>
+          </div>
+          <p v-if="!dueDate" class="text-[11px] text-[#6e6e73] dark:text-[#98989d]">
+            设置截止日期后才能重复
+          </p>
         </div>
 
         <div class="ws-field-row grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -21,6 +21,7 @@ import Button from '../components/ui/Button.vue'
 import Input from '../components/ui/Input.vue'
 import SearchSelect from '../components/ui/SearchSelect.vue'
 import ProjectForm from '../components/ProjectForm.vue'
+import ProjectTimeline from '../components/ProjectTimeline.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Toast from '../components/Toast.vue'
 import ToolsToggle from '../components/ToolsToggle.vue'
@@ -48,6 +49,11 @@ const emit = defineEmits<{
 const projects = ref<Project[]>(cachedProjects ?? [])
 const todos = ref<Todo[]>(cachedTodos?.items ?? [])
 const keyword = ref(takeSearchTarget())
+const initialKeyword = keyword.value.trim()
+const showFinished = ref(Boolean(initialKeyword
+  && (cachedProjects ?? []).some((project) =>
+    project.title === initialKeyword && projectStatusOf(project) === 'ACCEPTED')))
+let targetVisibilityApplied = !initialKeyword
 const statusFilter = ref<ProjectStatus | ''>('')
 const statusOptions = [
   { value: '', label: '全部状态' },
@@ -78,18 +84,42 @@ const stats = computed(() => {
   return result
 })
 
+const moduleCounts = computed(() => {
+  const result = new Map<string, Map<string, number>>()
+  for (const todo of todos.value) {
+    if (!todo.project || !todo.module) continue
+    const counts = result.get(todo.project) ?? new Map<string, number>()
+    counts.set(todo.module, (counts.get(todo.module) ?? 0) + 1)
+    result.set(todo.project, counts)
+  }
+  return result
+})
+
+function modulesOf(project: Project): string[] {
+  const counts = moduleCounts.value.get(project.name)
+  return [...project.modules].sort((a, b) => (counts?.get(b) ?? 0) - (counts?.get(a) ?? 0))
+}
+
 const hasProjectFilters = computed(() =>
   keyword.value.trim() !== '' || statusFilter.value !== '')
 
-const filteredProjects = computed(() => {
+function matchesProjectFilters(project: Project): boolean {
+  if (statusFilter.value && projectStatusOf(project) !== statusFilter.value) return false
   const needle = keyword.value.trim().toLowerCase()
-  return projects.value.filter((project) => {
-    if (statusFilter.value && projectStatusOf(project) !== statusFilter.value) return false
-    if (!needle) return true
-    return [project.title, project.note ?? '', ...project.modules, ...project.links]
-      .some((value) => value.toLowerCase().includes(needle))
-  })
-})
+  if (!needle) return true
+  return [project.title, project.note ?? '', ...project.modules, ...project.links]
+    .some((value) => value.toLowerCase().includes(needle))
+}
+
+const filteredProjects = computed(() => projects.value.filter((project) => {
+  if (!showFinished.value && projectStatusOf(project) === 'ACCEPTED') return false
+  return matchesProjectFilters(project)
+}))
+
+const hiddenProjectCount = computed(() => showFinished.value
+  ? 0
+  : projects.value.filter((project) =>
+    projectStatusOf(project) === 'ACCEPTED' && matchesProjectFilters(project)).length)
 
 function statsOf(name: string): ProjectStats {
   return stats.value.get(name) ?? { total: 0, open: 0, done: 0, dismissed: 0 }
@@ -117,6 +147,11 @@ async function load(options: { silent?: boolean } = {}): Promise<void> {
       listTodos({ size: 500 })
     ])
     projects.value = projectList
+    if (!targetVisibilityApplied) {
+      targetVisibilityApplied = true
+      showFinished.value = projectList.some((project) =>
+        project.title === initialKeyword && projectStatusOf(project) === 'ACCEPTED')
+    }
     todos.value = todoList.items
     writeCache('projects', projectList)
     writeCache('todos', { items: todoList.items, total: todoList.total })
@@ -319,6 +354,35 @@ onMounted(() => {
         aria-label="按项目状态筛选"
         class="w-[132px]"
       />
+      <Button
+        v-if="projects.length"
+        variant="ghost"
+        size="icon"
+        class="rounded-full"
+        :class="showFinished ? 'bg-[#007AFF]/[0.12] text-[#007AFF] dark:bg-[#0A84FF]/[0.20] dark:text-[#64B5FF]' : ''"
+        :aria-label="showFinished ? '隐藏已验收项目' : '显示已验收项目'"
+        :title="showFinished ? '隐藏已验收项目' : '显示已验收项目'"
+        :aria-pressed="showFinished"
+        @click="showFinished = !showFinished"
+      >
+        <svg v-if="showFinished" class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
+          <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+        </svg>
+        <svg v-else class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M1.6 8s2.2-4.2 6.4-4.2S14.4 8 14.4 8s-2.2 4.2-6.4 4.2S1.6 8 1.6 8z"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
+          <circle cx="8" cy="8" r="1.9" stroke="currentColor" stroke-width="1.3" />
+          <path d="M3 13L13 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+      </Button>
       <Button variant="primary" class="ml-auto" @click="openCreate">
         <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
@@ -351,12 +415,17 @@ onMounted(() => {
       @contextmenu.prevent.stop="openEmptyMenu($event)"
     >
       <p class="ws-state-title text-[15px] font-semibold">
-        {{ hasProjectFilters ? '没有匹配的项目' : '还没有项目' }}
+        {{ hiddenProjectCount ? '已验收项目已隐藏' : (hasProjectFilters ? '没有匹配的项目' : '还没有项目') }}
       </p>
       <p class="ws-muted text-[13px] text-[#6e6e73] dark:text-[#98989d]">
-        {{ hasProjectFilters ? '换个关键词或状态试试' : '把正在做的事建成项目，集中管理模块、状态和链接' }}
+        {{ hiddenProjectCount
+          ? `当前筛选下有 ${hiddenProjectCount} 个已验收项目`
+          : (hasProjectFilters ? '换个关键词或状态试试' : '把正在做的事建成项目，集中管理模块、状态和链接') }}
       </p>
-      <Button v-if="!hasProjectFilters" class="mt-2" variant="primary" @click="openCreate">
+      <Button v-if="hiddenProjectCount" class="mt-2" @click="showFinished = true">
+        显示已验收项目
+      </Button>
+      <Button v-else-if="!hasProjectFilters" class="mt-2" variant="primary" @click="openCreate">
         新建项目
       </Button>
     </section>
@@ -408,16 +477,6 @@ onMounted(() => {
                 <path d="M5.5 8.2l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </Button>
-            <Button variant="ghost" size="icon" aria-label="编辑" title="编辑" @click.stop="openEdit(project)">
-              <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path
-                  d="M10.8 2.6a1.4 1.4 0 012 2L5 12.4l-2.6.6.6-2.6 7.8-7.8z"
-                  stroke="currentColor"
-                  stroke-width="1.4"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -439,7 +498,7 @@ onMounted(() => {
           </div>
         </header>
 
-        <div class="mb-3 flex items-center">
+        <div class="mb-3 flex flex-col items-start gap-1.5">
           <span
             class="ws-project-status-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
             :class="projectStatusMeta(projectStatusOf(project)).badge"
@@ -451,13 +510,19 @@ onMounted(() => {
             ></i>
             {{ projectStatusMeta(projectStatusOf(project)).label }}
           </span>
+          <ProjectTimeline :entries="project.statusHistory ?? []" />
         </div>
 
-        <div v-if="project.modules.length" class="mb-3 flex flex-wrap gap-1.5">
+        <div
+          v-if="project.modules.length"
+          class="mb-3 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden"
+          :title="modulesOf(project).join(' · ')"
+          :style="{ maskImage: 'linear-gradient(to right, #000 90%, transparent)' }"
+        >
           <span
-            v-for="item in project.modules"
+            v-for="item in modulesOf(project)"
             :key="item"
-            class="rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/70 dark:bg-white/[0.08] dark:text-[#f5f5f7]/70"
+            class="ws-project-module shrink-0 whitespace-nowrap rounded-full bg-black/[0.05] px-2 py-0.5 text-[11px] text-[#1d1d1f]/70 dark:bg-white/[0.08] dark:text-[#f5f5f7]/70"
             @contextmenu.prevent.stop="openModuleChipMenu($event, project, item)"
           >{{ item }}</span>
         </div>

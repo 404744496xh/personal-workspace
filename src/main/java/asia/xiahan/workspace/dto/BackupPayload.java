@@ -30,6 +30,8 @@ public record BackupPayload(
         Boolean dismissed,
         @Size(max = 40) String dismissedAt,
         Boolean pinned,
+        @Pattern(regexp = "NONE|DAILY|WEEKLY|MONTHLY") String recurrence,
+        @Size(max = 64) String seriesId,
         @Size(max = 40) String createdAt
     ) {
     }
@@ -42,7 +44,14 @@ public record BackupPayload(
         Integer progress,
         @Size(max = 2000) String note,
         @Size(max = 20) List<@NotBlank @Size(max = 2000) String> links,
-        @Size(max = 10) List<@NotBlank @Size(max = 32) String> tags
+        @Size(max = 10) List<@NotBlank @Size(max = 32) String> tags,
+        @Size(max = 200) List<@Valid BackupStatusChange> statusHistory
+    ) {
+    }
+
+    public record BackupStatusChange(
+        @Pattern(regexp = "NOT_STARTED|DEV|TEST|RELEASED|ACCEPTED") String status,
+        @Size(max = 40) String startedAt
     ) {
     }
 
